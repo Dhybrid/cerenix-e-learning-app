@@ -1,0 +1,174 @@
+name: Cerenix
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  speech_to_text: ^7.3.0
+  share_plus: ^7.2.1
+  image_picker: ^1.0.4
+  file_picker: ^10.3.3
+  permission_handler: ^12.0.1
+  open_file: ^3.3.1
+  path_provider: ^2.1.1
+  material_design_icons_flutter: ^7.0.7296
+
+  flutter_markdown: ^0.7.3
+  flutter_math_fork: ^0.7.2
+  highlight: ^0.7.0
+  markdown: ^7.1.1
+
+  lottie: ^2.7.0
+  table_calendar: ^3.2.0
+  intl: ^0.20.2
+  shared_preferences: ^2.5.3
+  syncfusion_flutter_pdfviewer: ^31.2.10
+
+  google_sign_in: ^6.2.0
+  http: ^1.6.0
+
+  flutter_secure_storage: ^9.0.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  connectivity_plus: ^6.0.0
+  flutter_quill: ^11.5.0
+
+
+  pull_to_refresh: ^2.0.0
+  webview_flutter: ^4.4.2
+  flutter_tts: ^4.2.3
+  uuid: ^4.5.2
+
+  url_launcher: ^6.1.11
+  # flutter_html: ^3.0.0-beta.2
+  flutter_html: ^3.0.0
+  # youtube_player_flutter: ^8.1.2
+  youtube_player_flutter: 8.0.0
+  cached_network_image: ^3.3.0
+  # youtube_player_iframe: ^3.1.0+1
+  youtube_player_iframe: ^5.2.2
+  universal_html: ^2.2.2
+  flutter_inappwebview: ^6.0.0
+  universal_platform: ^1.0.0+1
+
+  dio: ^5.0.0
+  flutter_cache_manager: ^3.3.0
+
+
+dependency_overrides:
+  flutter_inappwebview: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+  hive_generator: ^1.1.3
+  build_runner: ^2.4.7
+  flutter_native_splash: ^2.2.10
+  
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  assets:
+    - assets/images/icon.png
+    - assets/images/robot.gif
+    - assets/images/pastQuestions.png
+    - assets/images/activate.png
+    - assets/images/scan.png
+    - assets/images/aiBoard.png
+    - assets/images/course.png
+    - assets/images/CGPA.png
+    - assets/images/waveAI.gif
+    - assets/images/cerenixSplash.png
+    - assets/images/advertboard.jpeg
+    - assets/images/profilePicture.jpg
+    - assets/images/courses.jpeg
+    - assets/images/futoLogo.jpeg
+    - assets/images/IMSULogo.jpeg
+    - assets/images/NDULogo.jpeg
+    - assets/images/UNILAGLOGO.png
+    - assets/images/UNIBENLogo.png
+    - assets/images/UNNLogo.png
+    - assets/images/UNIPORTLogo.jpeg
+    - assets/images/RSULogo.jpeg
+    - assets/images/UILogo.jpeg
+    - assets/images/UNICALLogo.jpeg
+    - assets/images/cerenixiconlittleone.png
+    - assets/lottie/Video.json
+    - assets/lottie/voiceone.json
+    - assets/lottie/activeVoice.json
+    - assets/images/cerenixicon.jpg
+    - assets/images/cerenixSpl.png
+    # - assets/images/icon.png
+
+
+flutter_native_splash:
+  # Background color for the splash screen
+  color: "#0077B6"
+
+  # Path to your logo
+  image: assets/images/cerenixSpl.png
+
+  # Scale the image to fit
+  android_gravity: center
+  ios_content_mode: scaleAspectFit
+
+  # Enable for Android and iOS
+  android: true
+  ios: true
+
+
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"
+  adaptive_icon_foreground: "assets/images/icon.png"
+  adaptive_icon_background: "#0A0F1F"

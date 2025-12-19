@@ -1,0 +1,38 @@
+import 'package:flutter/material.dart';
+import '../../../core/widgets/custom_app_bar.dart';
+import '../../../core/widgets/custom_drawer.dart';
+
+class CoursesScreen extends StatefulWidget {
+  const CoursesScreen({super.key});
+
+  @override
+  State<CoursesScreen> createState() => _CoursesScreenState();
+}
+
+class _CoursesScreenState extends State<CoursesScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: CustomAppBar(
+        scaffoldKey: _scaffoldKey,
+        title: 'Courses', // Changed title to AI Home
+        showNotifications: false,
+        showProfile: true,
+      ),
+      drawer: const CustomDrawer(),
+      body: const Center(
+        child: Text(
+          'Course Here',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+}
