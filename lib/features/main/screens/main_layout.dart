@@ -21,11 +21,11 @@ class _MainLayoutState extends State<MainLayout> {
 
   // List of all your main screens - using the aliased imports
   final List<Widget> _screens = [
-    const HomeScreen(),                      // Index 0
-    const features.FeaturesScreen(),         // Index 1
-    const ai.AIScreen(),                     // Index 2
-    const progress.ProgressScreen(),         // Index 3
-    const profile.ProfileScreen(),           // Index 4
+    const HomeScreen(), // Index 0
+    const features.FeaturesScreen(), // Index 1
+    const ai.AIScreen(), // Index 2
+    const progress.ProgressScreen(), // Index 3
+    const profile.ProfileScreen(), // Index 4
   ];
 
   void _onItemTapped(int index) {
@@ -57,7 +57,7 @@ class _MainLayoutState extends State<MainLayout> {
       body: Stack(
         children: [
           _screens[_currentIndex],
-          
+
           // AI Options Panel - Overlay on top of everything
           if (_showAIOptions) _buildAIOptionsOverlay(),
         ],
@@ -100,7 +100,7 @@ class _MainLayoutState extends State<MainLayout> {
             icon: Icons.document_scanner,
             title: 'Scan Document',
             subtitle: 'Extract text from images',
-            onTap: () => _navigateToAIOption('/scanner'),
+            onTap: () => _navigateToAIOption('/coming-soon'),
           ),
           // ADJUST THIS VALUE: Reduce to make options closer together
           const SizedBox(height: 4), // REDUCED FROM 6
@@ -244,7 +244,7 @@ class _MainLayoutState extends State<MainLayout> {
             width: 37, // REDUCED FROM 50
             height: 37, // REDUCED FROM 50
             decoration: BoxDecoration(
-              gradient: _showAIOptions 
+              gradient: _showAIOptions
                   ? const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -258,7 +258,11 @@ class _MainLayoutState extends State<MainLayout> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: (_showAIOptions ? const Color(0xFFFF6B35) : const Color(0xFF0077B6)).withOpacity(0.3),
+                  color:
+                      (_showAIOptions
+                              ? const Color(0xFFFF6B35)
+                              : const Color(0xFF0077B6))
+                          .withOpacity(0.3),
                   blurRadius: 8,
                   offset: const Offset(0, 3),
                 ),
@@ -276,7 +280,9 @@ class _MainLayoutState extends State<MainLayout> {
             style: TextStyle(
               fontSize: 11, // REDUCED FROM 12
               fontWeight: _showAIOptions ? FontWeight.w600 : FontWeight.normal,
-              color: _showAIOptions ? const Color(0xFFFF6B35) : const Color(0xFF9CA3AF),
+              color: _showAIOptions
+                  ? const Color(0xFFFF6B35)
+                  : const Color(0xFF9CA3AF),
             ),
           ),
         ],
@@ -286,7 +292,7 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _navItem(IconData icon, String label, int index) {
     final isActive = _currentIndex == index;
-    
+
     return GestureDetector(
       onTap: () => _onItemTapped(index),
       child: Column(
@@ -303,7 +309,9 @@ class _MainLayoutState extends State<MainLayout> {
             style: TextStyle(
               fontSize: 11, // REDUCED FROM 12
               fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-              color: isActive ? const Color(0xFF0077B6) : const Color(0xFF9CA3AF),
+              color: isActive
+                  ? const Color(0xFF0077B6)
+                  : const Color(0xFF9CA3AF),
             ),
           ),
         ],

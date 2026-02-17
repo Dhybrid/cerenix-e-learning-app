@@ -106,13 +106,13 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
           children: [
             // Advert Board
             _buildAdvertBoard(),
-            
+
             // Features Heading
             _buildFeaturesHeading(),
-            
+
             // Features Grid
             _buildFeaturesGrid(),
-            
+
             const SizedBox(height: 20),
           ],
         ),
@@ -128,7 +128,9 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
         borderRadius: BorderRadius.circular(16),
         color: const Color(0xFF0077B6),
         image: const DecorationImage(
-          image: AssetImage('assets/images/advertboard.jpeg'), // Your advert image
+          image: AssetImage(
+            'assets/images/courseboard.png',
+          ), // Your advert image
           fit: BoxFit.cover,
         ),
       ),
@@ -138,10 +140,7 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
           gradient: LinearGradient(
             begin: Alignment.bottomRight,
             end: Alignment.topLeft,
-            colors: [
-              Colors.black.withOpacity(0.3),
-              Colors.transparent,
-            ],
+            colors: [Colors.black.withOpacity(0.3), Colors.transparent],
           ),
         ),
         child: const Center(
@@ -234,7 +233,7 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-              
+
               // Content
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -265,7 +264,7 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
                         ),
                       ),
                     ),
-                    
+
                     // Feature Title
                     Text(
                       feature['title'] as String,

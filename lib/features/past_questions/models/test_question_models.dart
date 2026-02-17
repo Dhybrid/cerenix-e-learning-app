@@ -1,21 +1,21 @@
-// lib/features/past_questions/models/past_question_models.dart
+// lib/features/test_questions/models/test_question_models.dart
 import 'package:flutter/material.dart';
 
-// ==================== PAST QUESTION SESSION ====================
+// ==================== Test QUESTION SESSION ====================
 
-class PastQuestionSession {
+class TestQuestionSession {
   final String id;
   final String name;
   final bool isActive;
 
-  PastQuestionSession({
+  TestQuestionSession({
     required this.id,
     required this.name,
     required this.isActive,
   });
 
-  factory PastQuestionSession.fromJson(Map<String, dynamic> json) {
-    return PastQuestionSession(
+  factory TestQuestionSession.fromJson(Map<String, dynamic> json) {
+    return TestQuestionSession(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       isActive: json['is_active'] ?? false,
@@ -27,9 +27,9 @@ class PastQuestionSession {
   }
 }
 
-// ==================== SIMPLIFIED TOPIC MODEL FOR PAST QUESTIONS ====================
+// ==================== SIMPLIFIED TOPIC MODEL FOR TEST QUESTIONS ====================
 
-class PastQuestionTopic {
+class TestQuestionTopic {
   final String id;
   final String title;
   final String? outlineTitle;
@@ -37,7 +37,7 @@ class PastQuestionTopic {
   final String? courseId;
   final String? courseCode;
 
-  PastQuestionTopic({
+  TestQuestionTopic({
     required this.id,
     required this.title,
     this.outlineTitle,
@@ -46,9 +46,9 @@ class PastQuestionTopic {
     this.courseCode,
   });
 
-  factory PastQuestionTopic.fromJson(Map<String, dynamic> json) {
+  factory TestQuestionTopic.fromJson(Map<String, dynamic> json) {
     if (json == null || json is! Map<String, dynamic>) {
-      return PastQuestionTopic.empty();
+      return TestQuestionTopic.empty();
     }
 
     try {
@@ -62,7 +62,7 @@ class PastQuestionTopic {
           ? Map<String, dynamic>.from(json['course_info'] as Map)
           : null;
 
-      return PastQuestionTopic(
+      return TestQuestionTopic(
         id: json['id']?.toString() ?? '',
         title: json['title']?.toString() ?? '',
         outlineTitle: outlineInfo?['title']?.toString(),
@@ -74,9 +74,9 @@ class PastQuestionTopic {
         courseCode: courseInfo?['code']?.toString(),
       );
     } catch (e) {
-      print('❌ Error parsing PastQuestionTopic from JSON: $e');
+      print('❌ Error parsing TestQuestionTopic from JSON: $e');
       print('❌ JSON data: $json');
-      return PastQuestionTopic.empty();
+      return TestQuestionTopic.empty();
     }
   }
 
@@ -107,14 +107,14 @@ class PastQuestionTopic {
   }
 
   // Create empty topic
-  static PastQuestionTopic empty() {
-    return PastQuestionTopic(id: '', title: '');
+  static TestQuestionTopic empty() {
+    return TestQuestionTopic(id: '', title: '');
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is PastQuestionTopic && other.id == id;
+    return other is TestQuestionTopic && other.id == id;
   }
 
   @override
@@ -122,13 +122,13 @@ class PastQuestionTopic {
 
   @override
   String toString() {
-    return 'PastQuestionTopic(id: $id, title: $title, outline: $outlineTitle)';
+    return 'TestQuestionTopic(id: $id, title: $title, outline: $outlineTitle)';
   }
 }
 
-// ==================== PAST QUESTION ====================
+// ==================== TEST QUESTION ====================
 
-class PastQuestion {
+class TestQuestion {
   final String id;
   final Map<String, dynamic> courseInfo;
   final Map<String, dynamic> sessionInfo;
@@ -156,7 +156,7 @@ class PastQuestion {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  PastQuestion({
+  TestQuestion({
     required this.id,
     required this.courseInfo,
     required this.sessionInfo,
@@ -184,14 +184,14 @@ class PastQuestion {
     this.updatedAt,
   });
 
-  factory PastQuestion.fromJson(Map<String, dynamic> json) {
+  factory TestQuestion.fromJson(Map<String, dynamic> json) {
     // Handle the case where json might be null or not a Map
     if (json == null || json is! Map<String, dynamic>) {
-      return PastQuestion.empty();
+      return TestQuestion.empty();
     }
 
     try {
-      return PastQuestion(
+      return TestQuestion(
         id: json['id']?.toString() ?? '',
         courseInfo: json['course_info'] is Map
             ? Map<String, dynamic>.from(json['course_info'] as Map)
@@ -245,9 +245,9 @@ class PastQuestion {
             : null,
       );
     } catch (e) {
-      print('❌ Error parsing PastQuestion from JSON: $e');
+      print('❌ Error parsing TestQuestion from JSON: $e');
       print('❌ JSON data: $json');
-      return PastQuestion.empty();
+      return TestQuestion.empty();
     }
   }
 
@@ -465,7 +465,7 @@ class PastQuestion {
   // #############################
 
   // New method to create a copy with updated fields
-  PastQuestion copyWith({
+  TestQuestion copyWith({
     String? id,
     Map<String, dynamic>? courseInfo,
     Map<String, dynamic>? sessionInfo,
@@ -491,7 +491,7 @@ class PastQuestion {
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
-    return PastQuestion(
+    return TestQuestion(
       id: id ?? this.id,
       courseInfo: courseInfo ?? this.courseInfo,
       sessionInfo: sessionInfo ?? this.sessionInfo,
@@ -520,8 +520,8 @@ class PastQuestion {
   }
 
   // New method to create empty/default instance
-  static PastQuestion empty() {
-    return PastQuestion(
+  static TestQuestion empty() {
+    return TestQuestion(
       id: '',
       courseInfo: {},
       sessionInfo: {},
@@ -542,7 +542,7 @@ class PastQuestion {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is PastQuestion && other.id == id;
+    return other is TestQuestion && other.id == id;
   }
 
   @override
@@ -550,6 +550,6 @@ class PastQuestion {
 
   @override
   String toString() {
-    return 'PastQuestion(id: $id, course: $courseCode, session: $sessionName, topic: $topicTitle)';
+    return 'TestQuestion(id: $id, course: $courseCode, session: $sessionName, topic: $topicTitle)';
   }
 }

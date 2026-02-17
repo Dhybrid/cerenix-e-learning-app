@@ -2,6 +2,7 @@
 import 'dart:ui';
 import 'package:hive/hive.dart';
 import 'course_models.dart';
+export 'user_profile_adapter.dart';
 
 // Color adapter - typeId: 1
 class ColorAdapter extends TypeAdapter<Color> {
@@ -34,14 +35,14 @@ class CourseAdapter extends TypeAdapter<Course> {
   Course read(BinaryReader reader) {
     try {
       final map = Map<String, dynamic>.from(reader.readMap());
-      
+
       // Handle color field
       if (map['color'] != null && map['color'] is int) {
         map['color'] = Color(map['color'] as int);
       } else if (map['color_value'] != null) {
         map['color'] = Color(map['color_value'] as int);
       }
-      
+
       return Course.fromJson(map);
     } catch (e) {
       print('❌ Error reading Course from Hive: $e');
@@ -69,11 +70,11 @@ class CourseAdapter extends TypeAdapter<Course> {
   void write(BinaryWriter writer, Course obj) {
     try {
       final json = obj.toJson();
-      
+
       // Store color as separate value
       json['color_value'] = obj.color.value;
       json['color'] = obj.color.value; // Store as int
-      
+
       writer.writeMap(json);
     } catch (e) {
       print('❌ Error writing Course to Hive: $e');
@@ -132,13 +133,13 @@ class CourseOutlineAdapter extends TypeAdapter<CourseOutline> {
 // UserProfile adapter - typeId: 5
 class UserProfileAdapter extends TypeAdapter<UserProfile> {
   @override
-  final int typeId = 5;
+  final int typeId = 33;
 
   @override
   UserProfile read(BinaryReader reader) {
     try {
       final map = Map<String, dynamic>.from(reader.readMap());
-      
+
       // Parse dates safely
       DateTime parseDate(String? dateString) {
         if (dateString == null || dateString.isEmpty) return DateTime.now();
@@ -148,7 +149,7 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
           return DateTime.now();
         }
       }
-      
+
       return UserProfile(
         id: map['id']?.toString() ?? '',
         universityId: map['university_id']?.toString() ?? '',
@@ -197,13 +198,13 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
 // DownloadRecord adapter - typeId: 6 (to track which user downloaded what)
 class DownloadRecordAdapter extends TypeAdapter<DownloadRecord> {
   @override
-  final int typeId = 6;
+  final int typeId = 36;
 
   @override
   DownloadRecord read(BinaryReader reader) {
     try {
       final map = Map<String, dynamic>.from(reader.readMap());
-      
+
       DateTime parseDate(String? dateString) {
         if (dateString == null || dateString.isEmpty) return DateTime.now();
         try {
@@ -212,17 +213,19 @@ class DownloadRecordAdapter extends TypeAdapter<DownloadRecord> {
           return DateTime.now();
         }
       }
-      
+
       // Parse user profile if exists
       Map<String, dynamic>? userProfileMap;
       if (map['user_profile'] != null && map['user_profile'] is Map) {
         userProfileMap = Map<String, dynamic>.from(map['user_profile'] as Map);
       }
-      
+
       return DownloadRecord(
         courseId: map['course_id']?.toString() ?? '',
         userId: map['user_id']?.toString() ?? '',
-        userProfile: userProfileMap != null ? UserProfile.fromJson(userProfileMap) : null,
+        userProfile: userProfileMap != null
+            ? UserProfile.fromJson(userProfileMap)
+            : null,
         downloadedAt: parseDate(map['downloaded_at']?.toString()),
         courseUniversityId: map['course_university_id']?.toString() ?? '',
         courseLevelId: map['course_level_id']?.toString() ?? '',
@@ -266,7 +269,7 @@ class TopicAdapter extends TypeAdapter<Topic> {
   Topic read(BinaryReader reader) {
     try {
       final map = Map<String, dynamic>.from(reader.readMap());
-      
+
       // Handle dates safely
       DateTime parseDate(String? dateString) {
         if (dateString == null || dateString.isEmpty) return DateTime.now();
@@ -276,7 +279,7 @@ class TopicAdapter extends TypeAdapter<Topic> {
           return DateTime.now();
         }
       }
-      
+
       // Parse user progress
       Map<String, dynamic>? userProgress;
       if (map['user_progress'] != null && map['user_progress'] is Map) {
@@ -286,7 +289,7 @@ class TopicAdapter extends TypeAdapter<Topic> {
           userProgress = null;
         }
       }
-      
+
       // Get isCompleted from user_progress if available
       bool isCompleted = false;
       if (userProgress != null && userProgress['is_completed'] is bool) {
@@ -294,16 +297,16 @@ class TopicAdapter extends TypeAdapter<Topic> {
       } else if (map['is_completed'] is bool) {
         isCompleted = map['is_completed'] as bool;
       }
-      
+
       // Create Topic object with proper constructor
       return Topic(
         id: map['id']?.toString() ?? '',
         outlineId: map['outline']?.toString() ?? '',
-        outlineInfo: map['outline_info'] is Map 
-            ? Map<String, dynamic>.from(map['outline_info'] as Map) 
+        outlineInfo: map['outline_info'] is Map
+            ? Map<String, dynamic>.from(map['outline_info'] as Map)
             : null,
-        courseInfo: map['course_info'] is Map 
-            ? Map<String, dynamic>.from(map['course_info'] as Map) 
+        courseInfo: map['course_info'] is Map
+            ? Map<String, dynamic>.from(map['course_info'] as Map)
             : null,
         title: map['title']?.toString() ?? '',
         description: map['description']?.toString(),
@@ -315,24 +318,29 @@ class TopicAdapter extends TypeAdapter<Topic> {
         order: (map['order'] is int)
             ? map['order'] as int
             : (map['order'] is String)
-                ? int.tryParse(map['order'] as String) ?? 0
-                : 0,
+            ? int.tryParse(map['order'] as String) ?? 0
+            : 0,
         durationMinutes: (map['duration_minutes'] is int)
             ? map['duration_minutes'] as int
             : 0,
-        isPublished: map['is_published'] is bool ? map['is_published'] as bool : true,
+        isPublished: map['is_published'] is bool
+            ? map['is_published'] as bool
+            : true,
         createdAt: parseDate(map['created_at']?.toString()),
         updatedAt: parseDate(map['updated_at']?.toString()),
         userProgress: userProgress,
         progressPercentage: 0,
         isCompleted: isCompleted,
         timeSpentMinutes: 0,
-        
+
         // Completion question fields
         completionQuestionText: map['completion_question_text']?.toString(),
         completionQuestionImage: map['completion_question_image']?.toString(),
-        completionQuestionImageUrl: map['completion_question_image_url']?.toString(),
-        hasOptions: map['has_options'] is bool ? map['has_options'] as bool : false,
+        completionQuestionImageUrl: map['completion_question_image_url']
+            ?.toString(),
+        hasOptions: map['has_options'] is bool
+            ? map['has_options'] as bool
+            : false,
         options: _parseOptions(map['options']),
         optionA: map['option_a']?.toString(),
         optionB: map['option_b']?.toString(),
@@ -342,14 +350,14 @@ class TopicAdapter extends TypeAdapter<Topic> {
         solutionText: map['solution_text']?.toString(),
         solutionImage: map['solution_image']?.toString(),
         solutionImageUrl: map['solution_image_url']?.toString(),
-        hasCompletionQuestion: map['has_completion_question'] is bool 
-            ? map['has_completion_question'] as bool 
+        hasCompletionQuestion: map['has_completion_question'] is bool
+            ? map['has_completion_question'] as bool
             : false,
       );
     } catch (e) {
       print('❌ Error reading Topic from Hive: $e');
       print('📄 Error details: ${e.toString()}');
-      
+
       return Topic(
         id: '0',
         outlineId: '0',
@@ -400,18 +408,18 @@ class TopicAdapter extends TypeAdapter<Topic> {
 // Helper function to check if course adapters are registered
 bool areCourseAdaptersRegistered() {
   try {
-    // return Hive.isAdapterRegistered(1) && 
-    //        Hive.isAdapterRegistered(2) && 
-    //        Hive.isAdapterRegistered(3) && 
+    // return Hive.isAdapterRegistered(1) &&
+    //        Hive.isAdapterRegistered(2) &&
+    //        Hive.isAdapterRegistered(3) &&
     //        Hive.isAdapterRegistered(4) &&
     //        Hive.isAdapterRegistered(5) && // ADD THIS
     //        Hive.isAdapterRegistered(6);   // ADD THIS;
-    return Hive.isAdapterRegistered(1) && 
-           Hive.isAdapterRegistered(2) && 
-           Hive.isAdapterRegistered(3) && 
-           Hive.isAdapterRegistered(4) &&
-           Hive.isAdapterRegistered(5) && // ADD THIS
-           Hive.isAdapterRegistered(6);   // ADD THIS
+    return Hive.isAdapterRegistered(1) &&
+        Hive.isAdapterRegistered(2) &&
+        Hive.isAdapterRegistered(3) &&
+        Hive.isAdapterRegistered(4) &&
+        Hive.isAdapterRegistered(5) && // ADD THIS
+        Hive.isAdapterRegistered(6); // ADD THIS
   } catch (e) {
     return false;
   }
@@ -424,17 +432,17 @@ Future<void> registerCourseAdapters() async {
       Hive.registerAdapter(ColorAdapter());
       print('✅ Registered ColorAdapter (typeId: 1)');
     }
-    
+
     if (!Hive.isAdapterRegistered(2)) {
       Hive.registerAdapter(CourseAdapter());
       print('✅ Registered CourseAdapter (typeId: 2)');
     }
-    
+
     if (!Hive.isAdapterRegistered(3)) {
       Hive.registerAdapter(CourseOutlineAdapter());
       print('✅ Registered CourseOutlineAdapter (typeId: 3)');
     }
-    
+
     if (!Hive.isAdapterRegistered(4)) {
       Hive.registerAdapter(TopicAdapter());
       print('✅ Registered TopicAdapter (typeId: 4)');
@@ -445,12 +453,12 @@ Future<void> registerCourseAdapters() async {
       Hive.registerAdapter(UserProfileAdapter());
       print('✅ Registered UserProfileAdapter (typeId: 5)');
     }
-    
+
     if (!Hive.isAdapterRegistered(6)) {
       Hive.registerAdapter(DownloadRecordAdapter());
       print('✅ Registered DownloadRecordAdapter (typeId: 6)');
     }
-    
+
     print('✅ All course adapters registered successfully');
   } catch (e) {
     print('❌ Error registering course adapters: $e');

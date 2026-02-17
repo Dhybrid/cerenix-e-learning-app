@@ -28,11 +28,19 @@ class _AIChatScreenState extends State<AIChatScreen> {
   String _currentSessionId = '';
 
   final List<Map<String, dynamic>> _courses = [
-    {'title': 'Mathematics', 'icon': Icons.functions, 'color': Color(0xFF6366F1)},
+    {
+      'title': 'Mathematics',
+      'icon': Icons.functions,
+      'color': Color(0xFF6366F1),
+    },
     {'title': 'Physics', 'icon': Icons.bolt, 'color': Color(0xFF8B5CF6)},
     {'title': 'Chemistry', 'icon': Icons.science, 'color': Color(0xFF10B981)},
     {'title': 'Biology', 'icon': Icons.psychology, 'color': Color(0xFFF59E0B)},
-    {'title': 'Computer Science', 'icon': Icons.code, 'color': Color(0xFFEF4444)},
+    {
+      'title': 'Computer Science',
+      'icon': Icons.code,
+      'color': Color(0xFFEF4444),
+    },
     {'title': 'English', 'icon': Icons.menu_book, 'color': Color(0xFF06B6D4)},
     {'title': 'History', 'icon': Icons.public, 'color': Color(0xFF84CC16)},
     {'title': 'Geography', 'icon': Icons.map, 'color': Color(0xFFF97316)},
@@ -50,7 +58,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     await ChatService.initHive();
     _loadChatHistory();
     _getCurrentSessionId();
-    
+
     if (widget.initialQuestion != null) {
       _addUserMessage(widget.initialQuestion!);
       _generateAIResponse(widget.initialQuestion!);
@@ -108,13 +116,13 @@ class _AIChatScreenState extends State<AIChatScreen> {
       _isLoading = true;
       _hasReachedMax = false;
     });
-    
+
     try {
       final response = await ChatService.sendMessage(userMessage);
-      
+
       setState(() {
         _isLoading = false;
-        
+
         if (response['success']) {
           _chatMessages.add({
             'text': response['reply'],
@@ -124,7 +132,9 @@ class _AIChatScreenState extends State<AIChatScreen> {
         } else {
           if (response['error'] == 'daily_limit_exceeded') {
             _chatMessages.add({
-              'text': response['message'] ?? 'Daily message limit reached. Please try again tomorrow.',
+              'text':
+                  response['message'] ??
+                  'Daily message limit reached. Please try again tomorrow.',
               'isUser': false,
               'isError': true,
               'isLimitReached': true,
@@ -134,7 +144,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
               _hasReachedMax = true;
             }
             _chatMessages.add({
-              'text': 'Sorry, I encountered an error: ${response['error']}',
+              'text':
+                  'Sorry, I encountered an error, check your network and try again',
               'isUser': false,
               'isError': true,
             });
@@ -154,7 +165,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
         });
       });
     }
-    
+
     _scrollToBottom();
     _loadChatHistory();
     _getCurrentSessionId();
@@ -176,7 +187,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Copied to clipboard'), 
+        content: Text('Copied to clipboard'),
         backgroundColor: Color(0xFF10B981),
         duration: Duration(seconds: 2),
       ),
@@ -191,7 +202,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
   }
 
   void _sendEditedMessage() {
-    if (_messageController.text.trim().isNotEmpty && _editingMessageIndex != -1) {
+    if (_messageController.text.trim().isNotEmpty &&
+        _editingMessageIndex != -1) {
       setState(() {
         _chatMessages[_editingMessageIndex]['text'] = _messageController.text;
         _editingMessageIndex = -1;
@@ -250,12 +262,20 @@ class _AIChatScreenState extends State<AIChatScreen> {
         Container(
           width: 80,
           height: 80,
-          child: Icon(Icons.auto_awesome_rounded, color: Color(0xFF6366F1), size: 60),
+          child: Icon(
+            Icons.auto_awesome_rounded,
+            color: Color(0xFF6366F1),
+            size: 60,
+          ),
         ),
         const SizedBox(height: 24),
         const Text(
           'Hi, I\'m Cerenix AI',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1A1A2E),
+          ),
         ),
         const SizedBox(height: 8),
         const Text(
@@ -277,7 +297,9 @@ class _AIChatScreenState extends State<AIChatScreen> {
             spacing: 12,
             runSpacing: 12,
             alignment: WrapAlignment.center,
-            children: _courses.map((course) => _buildCourseChip(course)).toList(),
+            children: _courses
+                .map((course) => _buildCourseChip(course))
+                .toList(),
           ),
         ],
       ),
@@ -288,10 +310,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     return FilterChip(
       label: Text(
         course['title'],
-        style: TextStyle(
-          color: course['color'],
-          fontWeight: FontWeight.w500,
-        ),
+        style: TextStyle(color: course['color'], fontWeight: FontWeight.w500),
       ),
       avatar: Icon(course['icon'], color: course['color'], size: 18),
       backgroundColor: course['color'].withOpacity(0.1),
@@ -332,7 +351,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
                       children: [
                         const Text(
                           'Chat History',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const Spacer(),
                         IconButton(
@@ -348,9 +370,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
                         ? _buildEmptyHistory()
                         : ListView(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            children: [
-                              ..._buildHistorySections(),
-                            ],
+                            children: [..._buildHistorySections()],
                           ),
                   ),
                   Container(
@@ -363,7 +383,9 @@ class _AIChatScreenState extends State<AIChatScreen> {
                         backgroundColor: const Color(0xFF6366F1),
                         foregroundColor: Colors.white,
                         minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ),
@@ -394,10 +416,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
           const SizedBox(height: 8),
           Text(
             'Start a new conversation to see it here',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade400,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade400),
             textAlign: TextAlign.center,
           ),
         ],
@@ -417,8 +436,12 @@ class _AIChatScreenState extends State<AIChatScreen> {
     List<ChatSession> olderChats = [];
 
     for (final chat in _chatHistory) {
-      final chatDate = DateTime(chat.updatedAt.year, chat.updatedAt.month, chat.updatedAt.day);
-      
+      final chatDate = DateTime(
+        chat.updatedAt.year,
+        chat.updatedAt.month,
+        chat.updatedAt.day,
+      );
+
       if (chatDate == today) {
         todayChats.add(chat);
       } else if (chatDate == yesterday) {
@@ -456,38 +479,56 @@ class _AIChatScreenState extends State<AIChatScreen> {
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
           child: Text(
             title,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey),
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey,
+            ),
           ),
         ),
-        ...chats.map((chat) => Container(
-          margin: const EdgeInsets.only(bottom: 4),
-          child: ListTile(
-            leading: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: chat.id == _currentSessionId ? Colors.green : Colors.transparent,
-                shape: BoxShape.circle,
+        ...chats
+            .map(
+              (chat) => Container(
+                margin: const EdgeInsets.only(bottom: 4),
+                child: ListTile(
+                  leading: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: chat.id == _currentSessionId
+                          ? Colors.green
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  title: Text(
+                    chat.title,
+                    style: TextStyle(
+                      fontWeight: chat.id == _currentSessionId
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${chat.messages.length} messages • ${_formatDate(chat.updatedAt)}',
+                    style: TextStyle(
+                      color: chat.id == _currentSessionId
+                          ? Colors.green
+                          : Colors.grey.shade500,
+                      fontSize: 12,
+                    ),
+                  ),
+                  onTap: () => _loadChatSession(chat.id),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  tileColor: chat.id == _currentSessionId
+                      ? Colors.green.withOpacity(0.1)
+                      : null,
+                ),
               ),
-            ),
-            title: Text(
-              chat.title,
-              style: TextStyle(
-                fontWeight: chat.id == _currentSessionId ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-            subtitle: Text(
-              '${chat.messages.length} messages • ${_formatDate(chat.updatedAt)}',
-              style: TextStyle(
-                color: chat.id == _currentSessionId ? Colors.green : Colors.grey.shade500,
-                fontSize: 12,
-              ),
-            ),
-            onTap: () => _loadChatSession(chat.id),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            tileColor: chat.id == _currentSessionId ? Colors.green.withOpacity(0.1) : null,
-          ),
-        )).toList(),
+            )
+            .toList(),
         const SizedBox(height: 16),
       ],
     );
@@ -496,7 +537,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
-    
+
     if (difference.inDays == 0) return 'Today';
     if (difference.inDays == 1) return 'Yesterday';
     if (difference.inDays < 7) return '${difference.inDays} days ago';
@@ -507,12 +548,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
   Widget _buildMessageBubble(Map<String, dynamic> message, int index) {
     final isUser = message['isUser'];
     final isError = message['isError'] ?? false;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           if (!isUser)
             Container(
@@ -523,25 +566,32 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                isError ? Icons.error_rounded : Icons.smart_toy_rounded, 
-                color: Colors.white, 
-                size: 16
+                isError ? Icons.error_rounded : Icons.smart_toy_rounded,
+                color: Colors.white,
+                size: 16,
               ),
             ),
           if (!isUser) const SizedBox(width: 8),
           Flexible(
             child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Container(
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                  ),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: isUser ? const Color(0xFF6366F1) : 
-                           isError ? Colors.red.shade50 : Colors.grey.shade50,
+                    color: isUser
+                        ? const Color(0xFF6366F1)
+                        : isError
+                        ? Colors.red.shade50
+                        : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: isUser 
+                  child: isUser
                       ? SelectableText(
                           message['text'],
                           style: TextStyle(
@@ -556,19 +606,30 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 if (isUser)
                   GestureDetector(
                     onTap: () => _editMessage(index),
-                    child: Icon(Icons.edit_rounded, color: Colors.grey.shade500, size: 16),
+                    child: Icon(
+                      Icons.edit_rounded,
+                      color: Colors.grey.shade500,
+                      size: 16,
+                    ),
                   ),
                 if (!isUser && !isError)
                   Row(
                     children: [
                       GestureDetector(
                         onTap: () => _copyToClipboard(message['text']),
-                        child: Icon(Icons.content_copy_rounded, color: Colors.grey.shade500, size: 16),
+                        child: Icon(
+                          Icons.content_copy_rounded,
+                          color: Colors.grey.shade500,
+                          size: 16,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'Copy',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -585,11 +646,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     if (isError) {
       return SelectableText(
         text,
-        style: const TextStyle(
-          color: Colors.red,
-          fontSize: 15,
-          height: 1.4,
-        ),
+        style: const TextStyle(color: Colors.red, fontSize: 15, height: 1.4),
       );
     }
 
@@ -609,7 +666,11 @@ class _AIChatScreenState extends State<AIChatScreen> {
               color: Color(0xFF6366F1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 16),
+            child: const Icon(
+              Icons.smart_toy_rounded,
+              color: Colors.white,
+              size: 16,
+            ),
           ),
           const SizedBox(width: 8),
           Container(
@@ -672,7 +733,11 @@ class _AIChatScreenState extends State<AIChatScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange.shade700,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -728,9 +793,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
                 decoration: InputDecoration(
-                  hintText: _editingMessageIndex != -1 ? 'Edit your message...' : 'Message Cerenix AI...',
+                  hintText: _editingMessageIndex != -1
+                      ? 'Edit your message...'
+                      : 'Message Cerenix AI...',
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   hintStyle: TextStyle(color: Colors.grey.shade500),
                 ),
                 onSubmitted: (value) => _sendMessage(),
@@ -746,7 +816,13 @@ class _AIChatScreenState extends State<AIChatScreen> {
               borderRadius: BorderRadius.circular(24),
             ),
             child: IconButton(
-              icon: Icon(_editingMessageIndex != -1 ? Icons.check_rounded : Icons.north_east_rounded, color: Colors.white, size: 20),
+              icon: Icon(
+                _editingMessageIndex != -1
+                    ? Icons.check_rounded
+                    : Icons.north_east_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
               onPressed: _sendMessage,
             ),
           ),
@@ -773,7 +849,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Cerenix AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Cerenix AI',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1A1A2E),
         elevation: 0,
@@ -801,17 +880,21 @@ class _AIChatScreenState extends State<AIChatScreen> {
             Column(
               children: [
                 Expanded(
-                  child: _chatMessages.isEmpty 
+                  child: _chatMessages.isEmpty
                       ? SingleChildScrollView(child: _buildCourseChips())
                       : ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.only(bottom: 8),
-                          itemCount: _chatMessages.length + (_isLoading ? 1 : 0),
+                          itemCount:
+                              _chatMessages.length + (_isLoading ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == _chatMessages.length && _isLoading) {
                               return _buildLoadingIndicator();
                             }
-                            return _buildMessageBubble(_chatMessages[index], index);
+                            return _buildMessageBubble(
+                              _chatMessages[index],
+                              index,
+                            );
                           },
                         ),
                 ),
@@ -830,29 +913,52 @@ class MathMarkdownBody extends StatelessWidget {
   final String data;
   final Function(String) onCopyCode;
 
-  const MathMarkdownBody({super.key, required this.data, required this.onCopyCode});
+  const MathMarkdownBody({
+    super.key,
+    required this.data,
+    required this.onCopyCode,
+  });
 
   String _preprocessMath(String text) {
     return text.replaceAllMapped(
       RegExp(r'\$\$([^\$]+)\$\$'),
-      (match) => '\$${match.group(1)}\$'
+      (match) => '\$${match.group(1)}\$',
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final processedData = _preprocessMath(data);
-    
+
     return MarkdownBody(
       data: processedData,
       styleSheet: MarkdownStyleSheet(
         p: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),
-        strong: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+        strong: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
         em: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
-        h1: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
-        h2: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-        h3: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-        h4: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+        h1: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
+        h2: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
+        h3: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
+        h4: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
         blockquote: TextStyle(
           color: Colors.grey.shade700,
           fontStyle: FontStyle.italic,
@@ -871,7 +977,11 @@ class MathMarkdownBody extends StatelessWidget {
         ),
         listBullet: const TextStyle(fontSize: 15, color: Colors.black87),
         tableBody: const TextStyle(fontSize: 15, color: Colors.black87),
-        tableHead: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
+        tableHead: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
       ),
       builders: {
         'code': CodeElementBuilder(onCopy: onCopyCode),
@@ -882,14 +992,12 @@ class MathMarkdownBody extends StatelessWidget {
           _launchUrl(href);
         }
       },
-      extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
-        [
-          md.EmojiSyntax(),
-          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-          InlineMathSyntax(),
-        ],
-      ),
+      extensionSet:
+          md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
+            md.EmojiSyntax(),
+            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            InlineMathSyntax(),
+          ]),
     );
   }
 
@@ -911,10 +1019,12 @@ class CodeElementBuilder extends MarkdownElementBuilder {
     final codeContent = element.textContent;
     final lines = codeContent.split('\n').length;
     final isMultiLine = lines > 5;
-    
+
     return Container(
       width: double.infinity,
-      constraints: isMultiLine ? BoxConstraints(maxHeight: 300) : BoxConstraints(),
+      constraints: isMultiLine
+          ? BoxConstraints(maxHeight: 300)
+          : BoxConstraints(),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(8),
@@ -948,7 +1058,11 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                   onTap: () => onCopy(codeContent),
                   child: Row(
                     children: [
-                      Icon(Icons.content_copy, size: 14, color: Colors.grey.shade700),
+                      Icon(
+                        Icons.content_copy,
+                        size: 14,
+                        color: Colors.grey.shade700,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Copy',
@@ -1004,10 +1118,10 @@ class MathElementBuilder extends MarkdownElementBuilder {
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     String mathContent = element.textContent;
-    
+
     mathContent = mathContent.trim();
     bool needsWrapping = mathContent.length > 40;
-    
+
     try {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1017,7 +1131,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.blue.shade200),
         ),
-        child: needsWrapping 
+        child: needsWrapping
             ? _buildWrappedMath(mathContent)
             : _buildSingleLineMath(mathContent),
       );
@@ -1025,7 +1139,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       return _buildMathFallback(mathContent, needsWrapping);
     }
   }
-  
+
   Widget _buildSingleLineMath(String mathContent) {
     return Center(
       child: ConstrainedBox(
@@ -1034,10 +1148,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           fit: BoxFit.scaleDown,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(
-              fontSize: 18,
-              color: Colors.blue.shade900,
-            ),
+            textStyle: TextStyle(fontSize: 18, color: Colors.blue.shade900),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, false);
             },
@@ -1046,7 +1157,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       ),
     );
   }
-  
+
   Widget _buildWrappedMath(String mathContent) {
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: 120),
@@ -1056,10 +1167,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           scrollDirection: Axis.horizontal,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(
-              fontSize: 16,
-              color: Colors.blue.shade900,
-            ),
+            textStyle: TextStyle(fontSize: 16, color: Colors.blue.shade900),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, true);
             },
@@ -1068,7 +1176,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       ),
     );
   }
-  
+
   Widget _buildMathFallback(String mathContent, bool isWrapped) {
     return Container(
       padding: const EdgeInsets.all(8),

@@ -10,6 +10,10 @@ import '../../../core/widgets/custom_app_bar.dart';
 import '../../../core/widgets/custom_drawer.dart';
 import '../../../features/courses/models/course_models.dart';
 import '../../../features/courses/models/course_hive_adapters.dart';
+import '../../../features/past_questions/models/past_question_models.dart';
+import '../../../core/constants/endpoints.dart';
+import 'package:flutter/foundation.dart'; // Add this import
+import 'package:cached_network_image/cached_network_image.dart';
 
 class CoursesScreen extends StatefulWidget {
   const CoursesScreen({super.key});
@@ -25,30 +29,30 @@ class _CoursesScreenState extends State<CoursesScreen> {
   final ApiService _apiService = ApiService();
   final Dio _dio = Dio();
   final Connectivity _connectivity = Connectivity();
-  
+
   List<Course> filteredCourses = [];
   List<Course> allCourses = [];
   Course? recentCourse;
-  
+
   bool isLoading = true;
   bool hasError = false;
   String errorMessage = '';
-  
+
   // User profile for filtering
   UserProfile? _currentUserProfile;
-  
+
   // Activation status
   bool _isUserActivated = false;
   bool _checkingActivation = false;
   String _activationStatusMessage = 'Checking activation...';
-  
+
   // Download states
   Map<String, bool> downloadingCourses = {};
   Map<String, double> downloadProgress = {};
   Map<String, bool> isCourseDownloaded = {};
-  
-  final String? advertImageUrl = 'assets/images/advertboard.jpeg';
-  
+
+  final String? advertImageUrl = 'assets/images/courseboard.png';
+
   // Hive boxes
   static const String recentCourseBox = 'recent_course';
   static const String coursesCacheBox = 'courses_cache';
@@ -57,28 +61,40 @@ class _CoursesScreenState extends State<CoursesScreen> {
   static const String userOfflineDataBox = 'user_offline_data';
   static const String userProfileBox = 'user_profile_cache';
 
-  // @override
-  // void initState() {
-  //   super.initState();
-  //   filteredCourses = [];
-  //   _searchController.addListener(_filterCourses);
-  //   _loadInitialData();
-  // }
+  // Add this field to store current user ID
+  String? _currentUserId;
 
-  // Call it in initState:
-@override
-void initState() {
-  super.initState();
-  filteredCourses = [];
-  _searchController.addListener(_filterCourses);
-  
-  // Debug Hive immediately
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    _emergencyDebugHive();
-  });
-  
-  _loadInitialData();
-}
+  @override
+  void initState() {
+    super.initState();
+    filteredCourses = [];
+    _searchController.addListener(_filterCourses);
+
+    // Start loading immediately
+    // _loadInitialData();
+
+    // Get user ID first, then load data
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _ensureUserID();
+      await _fixExistingRecentCourseData(); // ADD THIS LINE
+      await _debugRecentCourseStorage(); // ADD THIS
+      await _loadInitialData();
+    });
+
+    // Add a safety check after 2 seconds
+    Future.delayed(Duration(seconds: 2), () async {
+      if (mounted && isLoading) {
+        print('⏰ Safety timeout - checking if courses loaded...');
+        final connectivityResult = await _connectivity.checkConnectivity();
+        final isOffline = connectivityResult == ConnectivityResult.none;
+
+        if (isOffline && allCourses.isEmpty) {
+          print('🚨 Emergency offline load triggered');
+          await _loadOfflineCourses();
+        }
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -89,53 +105,83 @@ void initState() {
 
   Future<void> _loadInitialData() async {
     print('🚀 Starting initial data load...');
-    
+
+    if (!mounted) return;
+
     setState(() {
       isLoading = true;
       hasError = false;
       errorMessage = '';
     });
-    
+
     try {
+      // Get current user ID first - ensure we have it
+      await _ensureUserID();
+
+      if (_currentUserId == null) {
+        print('⚠️ Could not get user ID, will try later');
+      }
+
       // Load cached profile first (fast)
       await _loadCachedUserProfile();
-      
+
+      // Clean up orphaned recent courses
+      await _cleanupOrphanedRecentCourses();
+
       // Load other data in parallel
       await Future.wait([
         _checkActivationStatus(),
         _loadRecentCourseFromStorage(),
         _loadDownloadStatuses(),
       ]);
-      
+
       // Then load courses
       await _loadCourses();
-      
+
       // Refresh profile in background
       _refreshUserProfileInBackground();
-      
     } catch (e) {
       print('❌ Error in initial load: $e');
-      setState(() {
-        isLoading = false;
-        hasError = true;
-        errorMessage = 'Failed to load courses. Please check your connection.';
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage =
+              'Failed to load courses. Please check your connection.';
+        });
+      }
     }
   }
 
-  // Load cached profile from Hive
   Future<void> _loadCachedUserProfile() async {
     try {
       final profileBox = await Hive.openBox(userProfileBox);
       final cachedProfile = profileBox.get('current_user_profile');
-      
+
       if (cachedProfile != null) {
+        print('📦 Found cached profile type: ${cachedProfile.runtimeType}');
+
         if (cachedProfile is UserProfile) {
           _currentUserProfile = cachedProfile;
+          print('✅ Loaded cached user profile as object');
         } else if (cachedProfile is Map<String, dynamic>) {
           _currentUserProfile = UserProfile.fromJson(cachedProfile);
+          print('✅ Loaded cached user profile from JSON');
+        } else if (cachedProfile is Map) {
+          try {
+            final json = Map<String, dynamic>.from(cachedProfile);
+            _currentUserProfile = UserProfile.fromJson(json);
+            print('✅ Loaded cached user profile from Map');
+          } catch (e) {
+            print('⚠️ Error converting cached profile: $e');
+          }
         }
-        print('👤 Loaded cached user profile: ${_currentUserProfile?.toString()}');
+
+        if (_currentUserProfile != null) {
+          print(
+            '👤 Loaded cached user profile: ${_currentUserProfile?.toString()}',
+          );
+        }
       } else {
         print('⚠️ No cached user profile found');
       }
@@ -155,70 +201,132 @@ void initState() {
     }
   }
 
-  // Refresh profile in background
   Future<void> _refreshUserProfileInBackground() async {
     try {
       final userData = await _apiService.getCurrentUser();
-      if (userData != null) {
-        // Extract university info
-        String universityId = userData['university_id']?.toString() ?? '';
-        String universityName = userData['university_name']?.toString() ?? '';
-        if (userData['university'] is Map<String, dynamic>) {
-          final university = userData['university'] as Map<String, dynamic>;
-          universityId = university['id']?.toString() ?? universityId;
-          universityName = university['name']?.toString() ?? universityName;
+      if (userData == null) {
+        print('⚠️ No user data available');
+        return;
+      }
+
+      print('🔄 Parsing user data: ${userData.keys}');
+
+      // Get current user ID
+      _currentUserId = userData['id']?.toString();
+
+      // Helper function to extract nested data
+      dynamic extractNested(dynamic data, List<String> keys) {
+        dynamic current = data;
+        for (var key in keys) {
+          if (current is Map && current.containsKey(key)) {
+            current = current[key];
+          } else {
+            return null;
+          }
+        }
+        return current;
+      }
+
+      // Extract university info
+      String universityId = '';
+      String universityName = '';
+
+      final university = extractNested(userData, ['university']);
+      if (university is Map) {
+        universityId = university['id']?.toString() ?? '';
+        universityName = university['name']?.toString() ?? '';
+      } else {
+        universityId = userData['university_id']?.toString() ?? '';
+        universityName = userData['university_name']?.toString() ?? '';
+      }
+
+      // Extract department info
+      String departmentId = '';
+      String departmentName = '';
+
+      final department = extractNested(userData, ['department']);
+      if (department is Map) {
+        departmentId = department['id']?.toString() ?? '';
+        departmentName = department['name']?.toString() ?? '';
+      } else {
+        departmentId = userData['department_id']?.toString() ?? '';
+        departmentName = userData['department_name']?.toString() ?? '';
+      }
+
+      // Extract level info
+      String levelId = '';
+      String levelName = '';
+
+      final level = extractNested(userData, ['level']);
+      if (level is Map) {
+        levelId = level['id']?.toString() ?? '';
+        levelName = level['name']?.toString() ?? '';
+      } else {
+        levelId = userData['level_id']?.toString() ?? '';
+        levelName = userData['level_name']?.toString() ?? '';
+      }
+
+      // Extract semester info
+      String semesterId = '';
+      String semesterName = '';
+
+      final semester = extractNested(userData, ['semester']);
+      if (semester is Map) {
+        semesterId = semester['id']?.toString() ?? '';
+        semesterName = semester['name']?.toString() ?? '';
+      } else {
+        semesterId = userData['semester_id']?.toString() ?? '';
+        semesterName = userData['semester_name']?.toString() ?? '';
+      }
+
+      print('📊 Extracted profile info:');
+      print('   University: $universityId - $universityName');
+      print('   Department: $departmentId - $departmentName');
+      print('   Level: $levelId - $levelName');
+      print('   Semester: $semesterId - $semesterName');
+
+      final newProfile = UserProfile(
+        id: _currentUserId ?? '',
+        universityId: universityId,
+        universityName: universityName,
+        departmentId: departmentId,
+        departmentName: departmentName,
+        levelId: levelId,
+        levelName: levelName,
+        semesterId: semesterId,
+        semesterName: semesterName,
+      );
+
+      // Check if profile changed
+      final bool profileChanged =
+          _currentUserProfile == null ||
+          !_currentUserProfile!.matches(newProfile) ||
+          _currentUserProfile!.departmentId != newProfile.departmentId;
+
+      if (profileChanged || departmentId.isNotEmpty) {
+        _currentUserProfile = newProfile;
+
+        try {
+          final profileBox = await Hive.openBox(userProfileBox);
+          await profileBox.put('current_user_profile', newProfile.toJson());
+          print('✅ User profile saved to cache as JSON');
+        } catch (e) {
+          print('⚠️ Error saving profile to cache: $e');
+          // Try alternative approach
+          try {
+            final profileBox = await Hive.openBox(userProfileBox);
+            await profileBox.put('current_user_profile', newProfile);
+            print('✅ User profile saved to cache as object');
+          } catch (e2) {
+            print('❌ Failed to save profile: $e2');
+          }
         }
 
-        // Extract department info
-        String departmentId = userData['department_id']?.toString() ?? '';
-        String departmentName = userData['department_name']?.toString() ?? '';
-        if (userData['department'] is Map<String, dynamic>) {
-          final department = userData['department'] as Map<String, dynamic>;
-          departmentId = department['id']?.toString() ?? departmentId;
-          departmentName = department['name']?.toString() ?? departmentName;
-        }
+        print('✅ User profile updated: ${_currentUserProfile?.toString()}');
 
-        // Extract level info
-        String levelId = userData['level_id']?.toString() ?? '';
-        String levelName = userData['level_name']?.toString() ?? '';
-        if (userData['level'] is Map<String, dynamic>) {
-          final level = userData['level'] as Map<String, dynamic>;
-          levelId = level['id']?.toString() ?? levelId;
-          levelName = level['name']?.toString() ?? levelName;
-        }
-
-        // Extract semester info
-        String semesterId = userData['semester_id']?.toString() ?? '';
-        String semesterName = userData['semester_name']?.toString() ?? '';
-        if (userData['semester'] is Map<String, dynamic>) {
-          final semester = userData['semester'] as Map<String, dynamic>;
-          semesterId = semester['id']?.toString() ?? semesterId;
-          semesterName = semester['name']?.toString() ?? semesterName;
-        }
-
-        final newProfile = UserProfile(
-          id: userData['id']?.toString() ?? '',
-          universityId: universityId,
-          universityName: universityName,
-          departmentId: departmentId,
-          departmentName: departmentName,
-          levelId: levelId,
-          levelName: levelName,
-          semesterId: semesterId,
-          semesterName: semesterName,
-        );
-        
-        // Check if profile changed
-        final bool profileChanged = _currentUserProfile == null || 
-            !_currentUserProfile!.matches(newProfile) ||
-            _currentUserProfile!.departmentId != newProfile.departmentId;
-        
-        if (profileChanged) {
-          _currentUserProfile = newProfile;
-          await _saveUserProfileToCache(newProfile);
-          print('🔄 User profile updated: ${_currentUserProfile?.toString()}');
-          
-          // Reload courses with new profile
+        // If department was previously empty, reload courses
+        if (_currentUserProfile!.departmentId.isNotEmpty &&
+            (allCourses.isEmpty || hasError)) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _loadCoursesWithProfile(newProfile);
@@ -227,21 +335,23 @@ void initState() {
         }
       }
     } catch (e) {
-      print('⚠️ Could not refresh user profile: $e');
+      print('❌ Error refreshing user profile: $e');
     }
   }
 
   Future<void> _loadCoursesWithProfile(UserProfile profile) async {
-    print('📚 Loading courses with profile: ${profile.departmentName} (${profile.departmentId})');
-    
+    print(
+      '📚 Loading courses with profile: ${profile.departmentName} (${profile.departmentId})',
+    );
+
     setState(() {
       isLoading = true;
     });
-    
+
     try {
       final connectivityResult = await _connectivity.checkConnectivity();
       final isConnected = connectivityResult != ConnectivityResult.none;
-      
+
       if (isConnected) {
         await _loadOnlineCoursesWithProfile(profile);
       } else {
@@ -261,16 +371,16 @@ void initState() {
     try {
       print('🌐 Fetching courses from API...');
       final courses = await _apiService.getCoursesForUser();
-      
+
       if (courses.isEmpty) {
         print('⚠️ No courses returned from API');
         await _loadCachedOrDownloadedCoursesWithProfile(profile);
         return;
       }
-      
+
       // Filter courses by department AND other academic info
       final filteredCoursesList = _filterCoursesByProfile(courses, profile);
-      
+
       if (filteredCoursesList.isEmpty) {
         print('⚠️ No courses match your department and academic profile');
         setState(() {
@@ -278,371 +388,311 @@ void initState() {
           filteredCourses = [];
           isLoading = false;
           hasError = false;
-          errorMessage = 'No courses available for your department and academic level.';
+          errorMessage =
+              'No courses available for your department and academic level.';
         });
         return;
       }
-      
+
       await _loadCoursesProgress(filteredCoursesList);
-      final enhancedCourses = await _enhanceCoursesWithDownloadStatus(filteredCoursesList);
-      
+      final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+        filteredCoursesList,
+      );
+
       setState(() {
         allCourses = enhancedCourses;
         filteredCourses = enhancedCourses;
         isLoading = false;
         hasError = false;
       });
-      
+
       await _cacheCourses(enhancedCourses);
-      
-      print('✅ Loaded ${enhancedCourses.length} filtered courses for ${profile.departmentName}');
-      
+
+      print(
+        '✅ Loaded ${enhancedCourses.length} filtered courses for ${profile.departmentName}',
+      );
     } catch (e) {
       print('⚠️ API error: $e');
       await _loadCachedOrDownloadedCoursesWithProfile(profile);
     }
   }
 
-  // Proper filtering method including department
-  // List<Course> _filterCoursesByProfile(List<Course> courses, UserProfile profile) {
-  //   return courses.where((course) {
-  //     // Check if course matches university, level, and semester
-  //     final matchesAcademic = 
-  //         course.universityId == profile.universityId &&
-  //         course.levelId == profile.levelId &&
-  //         course.semesterId == profile.semesterId;
-      
-  //     if (!matchesAcademic) {
-  //       return false;
-  //     }
-      
-  //     // Check if course is for user's department
-  //     // departmentsInfo is a list of department mappings
-  //     if (course.departmentsInfo.isNotEmpty) {
-  //       final bool isForUserDepartment = course.departmentsInfo.any((deptInfo) {
-  //         // Check different possible field names
-  //         final deptId = deptInfo['department_id']?.toString() ?? 
-  //                       deptInfo['id']?.toString() ?? 
-  //                       deptInfo['department']?.toString() ?? '';
-  //         return deptId == profile.departmentId;
-  //       });
-        
-  //       if (!isForUserDepartment) {
-  //         print('⚠️ Course ${course.code} is not for department ${profile.departmentId}');
-  //         return false;
-  //       }
-  //     } else {
-  //       // If course has no department info, skip it
-  //       print('⚠️ Course ${course.code} has no department info');
-  //       return false;
-  //     }
-      
-  //     return true;
-  //   }).toList();
-  // }
-  // Proper filtering method including department
-List<Course> _filterCoursesByProfile(List<Course> courses, UserProfile profile) {
-  return courses.where((course) {
-    // ONLY CHECK DEPARTMENT - remove university/level/semester checks
-    // departmentsInfo is a list of department mappings
-    if (course.departmentsInfo.isNotEmpty) {
-      final bool isForUserDepartment = course.departmentsInfo.any((deptInfo) {
-        // Check different possible field names
-        final deptId = deptInfo['department_id']?.toString() ?? 
-                      deptInfo['id']?.toString() ?? 
-                      deptInfo['department']?.toString() ?? '';
-        return deptId == profile.departmentId;
-      });
-      
-      if (!isForUserDepartment) {
-        print('⚠️ Course ${course.code} is not for department ${profile.departmentId}');
+  List<Course> _filterCoursesByProfile(
+    List<Course> courses,
+    UserProfile profile,
+  ) {
+    print('🔍 Filtering courses for department: ${profile.departmentId}');
+
+    // If profile doesn't have department info, return empty list
+    if (profile.departmentId.isEmpty) {
+      print('⚠️ Profile has no department ID, showing all courses');
+      return courses;
+    }
+
+    return courses.where((course) {
+      // Debug log for each course
+      print(
+        '   Course: ${course.code} - Departments: ${course.departmentsInfo.length}',
+      );
+
+      // If course has no department info, skip it
+      if (course.departmentsInfo.isEmpty) {
+        print('   ⚠️ Course ${course.code} has no department info');
         return false;
       }
-    } else {
-      // If course has no department info, skip it
-      print('⚠️ Course ${course.code} has no department info');
-      return false;
-    }
-    
-    return true;
-  }).toList();
-}
-  // ######################
+
+      // Check if course is for user's department
+      final bool isForUserDepartment = course.departmentsInfo.any((deptInfo) {
+        // Try multiple possible field names
+        final deptId =
+            deptInfo['department_id']?.toString() ??
+            deptInfo['id']?.toString() ??
+            deptInfo['department']?.toString() ??
+            '';
+
+        final match = deptId == profile.departmentId;
+        if (match) {
+          print('   ✅ Course ${course.code} matches department $deptId');
+        }
+        return match;
+      });
+
+      if (!isForUserDepartment) {
+        print(
+          '   ⚠️ Course ${course.code} not for department ${profile.departmentId}',
+        );
+      }
+
+      return isForUserDepartment;
+    }).toList();
+  }
 
   Future<void> _loadOfflineCoursesWithProfile(UserProfile profile) async {
     print('📴 Loading offline courses for ${profile.departmentName}');
-    await _loadCachedOrDownloadedCoursesWithProfile(profile);
-  }
 
-  // Future<void> _loadCachedOrDownloadedCoursesWithProfile(UserProfile profile) async {
-  //   try {
-  //     // Try cached courses first
-  //     final cachedCourses = await _loadCachedCourses();
-      
-  //     if (cachedCourses.isNotEmpty) {
-  //       print('📂 Found ${cachedCourses.length} cached courses');
-  //       final filteredCachedCourses = _filterCoursesByProfile(cachedCourses, profile);
-        
-  //       if (filteredCachedCourses.isNotEmpty) {
-  //         print('✅ Filtered to ${filteredCachedCourses.length} cached courses for ${profile.departmentName}');
-  //         final enhancedCourses = await _enhanceCoursesWithDownloadStatus(filteredCachedCourses);
-          
-  //         setState(() {
-  //           allCourses = enhancedCourses;
-  //           filteredCourses = enhancedCourses;
-  //           isLoading = false;
-  //           hasError = false;
-  //           errorMessage = 'Offline mode: Showing cached courses';
-  //         });
-  //         return;
-  //       }
-  //     }
-      
-  //     // Try downloaded courses
-  //     await _loadDownloadedCoursesOnlyWithProfile(profile);
-      
-  //   } catch (e) {
-  //     print('❌ Error loading cached courses: $e');
-  //     await _loadDownloadedCoursesOnlyWithProfile(profile);
-  //   }
-  // }
-  Future<void> _loadCachedOrDownloadedCoursesWithProfile(UserProfile profile) async {
-  print('🔄 Trying to load courses from cache/downloads...');
-  
-  try {
-    // FIRST: Try downloaded courses directly (skip cached courses)
-    print('📥 FIRST: Checking downloaded courses...');
-    await _loadDownloadedCoursesOnlyWithProfile(profile);
-    
-    // If downloaded courses loaded successfully, return
-    if (!isLoading && !hasError && allCourses.isNotEmpty) {
-      print('✅ Successfully loaded downloaded courses');
-      return;
-    }
-    
-    // SECOND: If no downloaded courses, try cached courses
-    print('📂 SECOND: No downloaded courses, checking cached courses...');
-    final cachedCourses = await _loadCachedCourses();
-    
-    if (cachedCourses.isNotEmpty) {
-      print('📂 Found ${cachedCourses.length} cached courses');
-      
-      // Filter cached courses by department ONLY (not university/level/semester)
-      final filteredCachedCourses = cachedCourses.where((course) {
-        if (course.departmentsInfo.isNotEmpty) {
-          return course.departmentsInfo.any((deptInfo) {
-            final deptId = deptInfo['department_id']?.toString() ?? 
-                          deptInfo['id']?.toString() ?? 
-                          deptInfo['department']?.toString() ?? '';
-            return deptId == profile.departmentId;
-          });
-        }
-        return false;
-      }).toList();
-      
-      if (filteredCachedCourses.isNotEmpty) {
-        print('✅ Filtered to ${filteredCachedCourses.length} cached courses for ${profile.departmentName}');
-        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(filteredCachedCourses);
-        
-        setState(() {
-          allCourses = enhancedCourses;
-          filteredCourses = enhancedCourses;
-          isLoading = false;
-          hasError = false;
-          errorMessage = 'Offline mode: Showing cached courses';
-        });
-        return;
+    try {
+      // Get connectivity status to confirm we're offline
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isOffline = connectivityResult == ConnectivityResult.none;
+
+      if (!isOffline) {
+        print('⚠️ Device shows online, but trying offline mode');
       }
-    }
-    
-    // THIRD: If we get here, show error
-    print('❌ No cached or downloaded courses found');
-    setState(() {
-      isLoading = false;
-      hasError = true;
-      errorMessage = 'No courses available offline. Please connect to download courses.';
-    });
-    
-  } catch (e) {
-    print('❌ Error loading cached/downloaded courses: $e');
-    setState(() {
-      isLoading = false;
-      hasError = true;
-      errorMessage = 'Failed to load offline courses.';
-    });
-  }
-}
-  // ######################
 
-  // Future<void> _loadDownloadedCoursesOnlyWithProfile(UserProfile profile) async {
-  //   try {
-  //     final offlineBox = await Hive.openBox(offlineCoursesBox);
-  //     final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-      
-  //     print('📥 Found ${downloadedCourseIds.length} downloaded courses');
-  //     print('👤 Current user profile for filtering:');
-  //     print('   - Department: ${profile.departmentId} (${profile.departmentName})');
-  //     print('   - Level: ${profile.levelId} (${profile.levelName})');
-  //     print('   - Semester: ${profile.semesterId} (${profile.semesterName})');
-  //     print('   - University: ${profile.universityId} (${profile.universityName})');
-      
-  //     final downloadedCourses = <Course>[];
-      
-  //     for (var courseId in downloadedCourseIds) {
-  //       try {
-  //         final courseData = offlineBox.get('course_$courseId');
-  //         if (courseData != null && courseData['course'] != null) {
-  //           final courseJson = Map<String, dynamic>.from(courseData['course']);
-            
-  //           // Create course object directly from stored data
-  //           Color color;
-  //           if (courseJson['color'] is int) {
-  //             color = Color(courseJson['color'] as int);
-  //           } else if (courseJson['color_value'] is int) {
-  //             color = Color(courseJson['color_value'] as int);
-  //           } else {
-  //             color = Course.generateColorFromCode(courseJson['code']?.toString() ?? '');
-  //           }
-            
-  //           final course = Course(
-  //             id: courseJson['id']?.toString() ?? courseId,
-  //             code: courseJson['code']?.toString() ?? '',
-  //             title: courseJson['title']?.toString() ?? '',
-  //             description: courseJson['description']?.toString(),
-  //             imageUrl: courseJson['image_url']?.toString(),
-  //             abbreviation: courseJson['abbreviation']?.toString(),
-  //             creditUnits: courseJson['credit_units'] is int ? courseJson['credit_units'] as int : 0,
-  //             universityId: courseJson['university_id']?.toString() ?? '',
-  //             universityName: courseJson['university_name']?.toString() ?? '',
-  //             levelId: courseJson['level_id']?.toString() ?? '',
-  //             levelName: courseJson['level_name']?.toString() ?? '',
-  //             semesterId: courseJson['semester_id']?.toString() ?? '',
-  //             semesterName: courseJson['semester_name']?.toString() ?? '',
-  //             departmentsInfo: courseJson['departments_info'] ?? [],
-  //             progress: courseJson['progress'] is int ? courseJson['progress'] as int : 0,
-  //             isDownloaded: true,
-  //             downloadDate: courseJson['download_date'] != null
-  //                 ? DateTime.tryParse(courseJson['download_date'].toString())
-  //                 : null,
-  //             localImagePath: courseJson['local_image_path']?.toString(),
-  //             color: color,
-  //           );
-            
-  //           // Apply academic filters (university, level, semester)
-  //           final matchesAcademic = 
-  //               course.universityId == profile.universityId &&
-  //               course.levelId == profile.levelId &&
-  //               course.semesterId == profile.semesterId;
-            
-  //           if (!matchesAcademic) {
-  //             print('⚠️ Course ${course.code} filtered out - academic mismatch');
-  //             print('   Course data: University=${course.universityId}, Level=${course.levelId}, Semester=${course.semesterId}');
-  //             continue; // Skip this course
-  //           }
-            
-  //           // Apply department filter
-  //           bool isForUserDepartment = false;
-  //           if (course.departmentsInfo.isNotEmpty) {
-  //             isForUserDepartment = course.departmentsInfo.any((deptInfo) {
-  //               final deptId = deptInfo['department_id']?.toString() ?? 
-  //                             deptInfo['id']?.toString() ?? 
-  //                             deptInfo['department']?.toString() ?? '';
-  //               return deptId == profile.departmentId;
-  //             });
-  //           }
-            
-  //           if (!isForUserDepartment) {
-  //             print('⚠️ Course ${course.code} filtered out - department mismatch');
-  //             print('   Course departments: ${course.departmentsInfo}');
-  //             continue; // Skip this course
-  //           }
-            
-  //           // Load progress from topics if available
-  //           final topicsData = courseData['topics'] as List?;
-  //           if (topicsData != null && topicsData.isNotEmpty) {
-  //             int completedTopics = 0;
-  //             for (var topic in topicsData) {
-  //               if (topic['user_progress'] != null && 
-  //                   topic['user_progress']['is_completed'] == true) {
-  //                 completedTopics++;
-  //               }
-  //             }
-  //             course.progress = topicsData.isNotEmpty ? 
-  //                 ((completedTopics / topicsData.length) * 100).round() : 0;
-  //           }
-            
-  //           downloadedCourses.add(course);
-  //           print('✅ Added downloaded course: ${course.code}');
-  //         }
-  //       } catch (e) {
-  //         print('⚠️ Error loading downloaded course $courseId: $e');
-  //       }
-  //     }
-      
-  //     if (downloadedCourses.isNotEmpty) {
-  //       print('✅ Loaded ${downloadedCourses.length} downloaded courses for ${profile.departmentName}');
-        
-  //       setState(() {
-  //         allCourses = downloadedCourses;
-  //         filteredCourses = downloadedCourses;
-  //         isLoading = false;
-  //         hasError = false;
-  //         errorMessage = 'Offline mode: Showing downloaded courses';
-  //       });
-  //     } else {
-  //       print('⚠️ No downloaded courses match current profile for ${profile.departmentName}');
-        
-  //       // Debug: Show what was actually downloaded
-  //       await _debugShowDownloadedCourses();
-        
-  //       setState(() {
-  //         isLoading = false;
-  //         hasError = true;
-  //         errorMessage = 'No downloaded courses match your current academic profile. Please connect to download courses for your department.';
-  //       });
-  //     }
-  //   } catch (e) {
-  //     print('❌ Error loading downloaded courses: $e');
-  //     setState(() {
-  //       isLoading = false;
-  //       hasError = true;
-  //       errorMessage = 'Failed to load courses. Please check your connection.';
-  //     });
-  //   }
-  // }
-
-  Future<void> _loadDownloadedCoursesOnlyWithProfile(UserProfile profile) async {
-  print('🔄 SIMPLE OFFLINE LOAD FOR PROFILE: ${profile.departmentId}');
-  
-  try {
-    // 1. Open Hive box
-    final offlineBox = await Hive.openBox(offlineCoursesBox);
-    
-    // 2. Get ALL downloaded course IDs
-    final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-    print('📦 Total downloaded courses in Hive: ${downloadedCourseIds.length}');
-    
-    // 3. If NO courses, show error immediately
-    if (downloadedCourseIds.isEmpty) {
-      print('❌ Hive is EMPTY - no courses ever downloaded');
+      await _loadCachedOrDownloadedCoursesWithProfile(profile);
+    } catch (e) {
+      print('❌ Error in _loadOfflineCoursesWithProfile: $e');
       setState(() {
         isLoading = false;
         hasError = true;
-        errorMessage = 'No courses downloaded. Please download courses when online.';
+        errorMessage =
+            'Failed to load offline courses. Please check your storage.';
       });
-      return;
     }
-    
-    // 4. Show ALL downloaded courses WITHOUT ANY FILTERING
+  }
+
+  Future<void> _ensureUserID() async {
+    if (_currentUserId != null) return;
+
+    try {
+      final userData = await _apiService.getCurrentUser();
+      if (userData != null) {
+        _currentUserId = userData['id'].toString();
+        print('👤 Got user ID in _ensureUserID: $_currentUserId');
+
+        // Migrate old recent courses after getting user ID
+        await _migrateOldRecentCourses();
+      } else {
+        print('⚠️ Could not get user data for ID');
+      }
+    } catch (e) {
+      print('❌ Error getting user ID: $e');
+    }
+  }
+
+  Future<void> _loadCachedOrDownloadedCoursesWithProfile(
+    UserProfile profile,
+  ) async {
+    print('🔄 Loading courses with profile offline...');
+    // Just load offline courses - the profile filtering will happen in _loadOfflineCourses
+    await _loadOfflineCourses();
+  }
+
+  Future<void> _loadDownloadedCoursesOnlyWithProfile(
+    UserProfile profile,
+  ) async {
+    print(
+      '🔄 Loading downloaded courses for user $_currentUserId, department: ${profile.departmentName}',
+    );
+
+    try {
+      final offlineBox = await Hive.openBox(offlineCoursesBox);
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
+      print(
+        '📦 Total downloaded courses in Hive: ${downloadedCourseIds.length}',
+      );
+
+      final downloadedCourses = <Course>[];
+
+      for (var courseId in downloadedCourseIds) {
+        try {
+          final courseData = offlineBox.get('course_$courseId');
+          if (courseData != null && courseData['course'] != null) {
+            final courseJson = Map<String, dynamic>.from(courseData['course']);
+
+            // ====== CRITICAL FIX: Check if downloaded by current user ======
+            final downloadedByUserId = courseData['user_id']?.toString();
+
+            // If we have a user_id stored, check if it matches current user
+            if (downloadedByUserId != null &&
+                downloadedByUserId != _currentUserId) {
+              print(
+                '⚠️ Skipping course $courseId - downloaded by different user: $downloadedByUserId (Current: $_currentUserId)',
+              );
+              continue; // Skip - not downloaded by current user
+            }
+            // ===============================================================
+
+            // Create course object
+            Color color;
+            if (courseJson['color'] is int) {
+              color = Color(courseJson['color'] as int);
+            } else if (courseJson['color_value'] is int) {
+              color = Color(courseJson['color_value'] as int);
+            } else {
+              color = Course.generateColorFromCode(
+                courseJson['code']?.toString() ?? '',
+              );
+            }
+
+            final course = Course(
+              id: courseJson['id']?.toString() ?? courseId,
+              code: courseJson['code']?.toString() ?? 'Unknown',
+              title: courseJson['title']?.toString() ?? 'No Title',
+              description: courseJson['description']?.toString(),
+              imageUrl: courseJson['image_url']?.toString(),
+              abbreviation: courseJson['abbreviation']?.toString(),
+              creditUnits: courseJson['credit_units'] is int
+                  ? courseJson['credit_units'] as int
+                  : 0,
+              universityId: courseJson['university_id']?.toString() ?? '',
+              universityName: courseJson['university_name']?.toString() ?? '',
+              levelId: courseJson['level_id']?.toString() ?? '',
+              levelName: courseJson['level_name']?.toString() ?? '',
+              semesterId: courseJson['semester_id']?.toString() ?? '',
+              semesterName: courseJson['semester_name']?.toString() ?? '',
+              departmentsInfo: courseJson['departments_info'] ?? [],
+              progress: courseJson['progress'] is int
+                  ? courseJson['progress'] as int
+                  : 0,
+              isDownloaded: true,
+              downloadDate: DateTime.now(),
+              localImagePath: courseJson['local_image_path']?.toString(),
+              color: color,
+            );
+
+            downloadedCourses.add(course);
+            print('✅ Loaded: ${course.code} for user $_currentUserId');
+          }
+        } catch (e) {
+          print('⚠️ Skipping course $courseId: $e');
+        }
+      }
+
+      // SHOW DOWNLOADED COURSES
+      if (downloadedCourses.isNotEmpty) {
+        print(
+          '🎉 SUCCESS: Showing ${downloadedCourses.length} downloaded courses for user $_currentUserId',
+        );
+
+        setState(() {
+          allCourses = downloadedCourses;
+          filteredCourses = downloadedCourses;
+          isLoading = false;
+          hasError = false;
+          errorMessage = 'Offline: Showing YOUR downloaded courses';
+        });
+      } else {
+        print('❌ No downloaded courses found for user $_currentUserId');
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage =
+              'You have no downloaded courses. Please download courses when online.';
+        });
+      }
+    } catch (e) {
+      print('❌ CRITICAL Hive Error: $e');
+      setState(() {
+        isLoading = false;
+        hasError = true;
+        errorMessage = 'Storage error. Try restarting the app.';
+      });
+    }
+  }
+  // #####################
+
+  Future<List<Course>> _getDownloadedCoursesForCurrentUser(
+    UserProfile profile,
+  ) async {
+    print('🔍 Getting downloaded courses for user $_currentUserId...');
+
     final downloadedCourses = <Course>[];
-    
-    for (var courseId in downloadedCourseIds) {
-      try {
-        final courseData = offlineBox.get('course_$courseId');
-        if (courseData != null && courseData['course'] != null) {
+
+    try {
+      final offlineBox = await Hive.openBox(offlineCoursesBox);
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
+      print(
+        '📦 Found ${downloadedCourseIds.length} downloaded course IDs in Hive',
+      );
+
+      for (var courseId in downloadedCourseIds) {
+        try {
+          final courseData = offlineBox.get('course_$courseId');
+          if (courseData == null || courseData['course'] == null) {
+            print('⚠️ Course $courseId data is missing or corrupted');
+            continue;
+          }
+
           final courseJson = Map<String, dynamic>.from(courseData['course']);
-          
-          // Create basic course object
+
+          // IMPORTANT: If we don't have a user ID yet, show all downloaded courses
+          if (_currentUserId == null) {
+            print('⚠️ No user ID, showing all downloaded courses');
+            // Continue without user filtering
+          } else {
+            // CRITICAL: Check if this course was downloaded by the current user
+            final downloadedByUserId = courseData['user_id']?.toString();
+
+            if (downloadedByUserId != null &&
+                downloadedByUserId != _currentUserId) {
+              print(
+                '⏭️ Skipping course $courseId - downloaded by different user: $downloadedByUserId',
+              );
+              continue;
+            }
+          }
+
+          // Create course object
+          Color color;
+          if (courseJson['color'] is int) {
+            color = Color(courseJson['color'] as int);
+          } else if (courseJson['color_value'] is int) {
+            color = Color(courseJson['color_value'] as int);
+          } else {
+            color = Course.generateColorFromCode(
+              courseJson['code']?.toString() ?? '',
+            );
+          }
+
           final course = Course(
             id: courseJson['id']?.toString() ?? courseId,
             code: courseJson['code']?.toString() ?? 'Unknown',
@@ -650,7 +700,9 @@ List<Course> _filterCoursesByProfile(List<Course> courses, UserProfile profile) 
             description: courseJson['description']?.toString(),
             imageUrl: courseJson['image_url']?.toString(),
             abbreviation: courseJson['abbreviation']?.toString(),
-            creditUnits: courseJson['credit_units'] is int ? courseJson['credit_units'] as int : 0,
+            creditUnits: courseJson['credit_units'] is int
+                ? courseJson['credit_units'] as int
+                : 0,
             universityId: courseJson['university_id']?.toString() ?? '',
             universityName: courseJson['university_name']?.toString() ?? '',
             levelId: courseJson['level_id']?.toString() ?? '',
@@ -658,102 +710,116 @@ List<Course> _filterCoursesByProfile(List<Course> courses, UserProfile profile) 
             semesterId: courseJson['semester_id']?.toString() ?? '',
             semesterName: courseJson['semester_name']?.toString() ?? '',
             departmentsInfo: courseJson['departments_info'] ?? [],
-            progress: courseJson['progress'] is int ? courseJson['progress'] as int : 0,
+            progress: courseJson['progress'] is int
+                ? courseJson['progress'] as int
+                : 0,
             isDownloaded: true,
             downloadDate: DateTime.now(),
             localImagePath: courseJson['local_image_path']?.toString(),
-            color: Course.generateColorFromCode(courseJson['code']?.toString() ?? ''),
+            color: color,
           );
-          
-          downloadedCourses.add(course);
-          print('✅ Loaded: ${course.code}');
-        }
-      } catch (e) {
-        print('⚠️ Skipping course $courseId: $e');
-      }
-    }
-    
-    // 5. SHOW THEM ALL - NO FILTERING
-    if (downloadedCourses.isNotEmpty) {
-      print('🎉 SUCCESS: Showing ${downloadedCourses.length} downloaded courses');
-      
-      setState(() {
-        allCourses = downloadedCourses;
-        filteredCourses = downloadedCourses;
-        isLoading = false;
-        hasError = false;
-        errorMessage = 'Offline: Showing ALL downloaded courses';
-      });
-    } else {
-      print('❌ Courses found in Hive but couldn\'t load any');
-      setState(() {
-        isLoading = false;
-        hasError = true;
-        errorMessage = 'Downloaded courses corrupted. Please re-download.';
-      });
-    }
-    
-  } catch (e) {
-    print('❌ CRITICAL Hive Error: $e');
-    setState(() {
-      isLoading = false;
-      hasError = true;
-      errorMessage = 'Storage error. Try restarting the app.';
-    });
-  }
-}
-  // ########################
 
+          downloadedCourses.add(course);
+          print(
+            '✅ Loaded downloaded course: ${course.code} for user $_currentUserId',
+          );
+        } catch (e) {
+          print('⚠️ Error loading downloaded course $courseId: $e');
+        }
+      }
+
+      print('📊 Total downloaded courses loaded: ${downloadedCourses.length}');
+
+      // Filter by department if profile has department info
+      if (profile.departmentId.isNotEmpty) {
+        final filtered = downloadedCourses.where((course) {
+          // If course has no department info, include it (for backward compatibility)
+          if (course.departmentsInfo.isEmpty) {
+            print(
+              '⚠️ Course ${course.code} has no department info, including anyway',
+            );
+            return true;
+          }
+
+          return course.departmentsInfo.any((deptInfo) {
+            final deptId =
+                deptInfo['department_id']?.toString() ??
+                deptInfo['id']?.toString() ??
+                deptInfo['department']?.toString() ??
+                '';
+            return deptId == profile.departmentId;
+          });
+        }).toList();
+
+        print(
+          '🔍 Filtered to ${filtered.length} courses matching department ${profile.departmentId}',
+        );
+        return filtered;
+      }
+
+      return downloadedCourses;
+    } catch (e) {
+      print('❌ Error in _getDownloadedCoursesForCurrentUser: $e');
+      return [];
+    }
+  }
 
   // Add this method and call it somewhere (like in initState)
-Future<void> _emergencyDebugHive() async {
-  print('🚨 EMERGENCY HIVE DEBUG 🚨');
-  try {
-    final box = await Hive.openBox(offlineCoursesBox);
-    
-    // Check if box exists
-    print('📦 Box exists: true');
-    print('📦 Box keys: ${box.keys.toList()}');
-    
-    // Check downloaded_course_ids
-    final ids = box.get('downloaded_course_ids', defaultValue: <String>[]);
-    print('📦 Downloaded course IDs: $ids');
-    print('📦 Number of IDs: ${ids.length}');
-    
-    // Check each course
-    for (var id in ids) {
-      final hasCourse = box.containsKey('course_$id');
-      print('   - course_$id exists: $hasCourse');
-      if (hasCourse) {
-        final data = box.get('course_$id');
-        if (data != null && data['course'] != null) {
-          final course = Map<String, dynamic>.from(data['course']);
-          print('     Code: ${course['code']}');
-          print('     Title: ${course['title']}');
+  Future<void> _emergencyDebugHive() async {
+    print('🚨 EMERGENCY HIVE DEBUG 🚨');
+    try {
+      final box = await Hive.openBox(offlineCoursesBox);
+
+      // Check if box exists
+      print('📦 Box exists: true');
+      print('📦 Box keys: ${box.keys.toList()}');
+
+      // Check downloaded_course_ids
+      final ids = box.get('downloaded_course_ids', defaultValue: <String>[]);
+      print('📦 Downloaded course IDs: $ids');
+      print('📦 Number of IDs: ${ids.length}');
+
+      // Check each course
+      for (var id in ids) {
+        final hasCourse = box.containsKey('course_$id');
+        print('   - course_$id exists: $hasCourse');
+        if (hasCourse) {
+          final data = box.get('course_$id');
+          if (data != null) {
+            final userWhoDownloaded = data['user_id']?.toString();
+            print('     Downloaded by user: $userWhoDownloaded');
+            if (data['course'] != null) {
+              final course = Map<String, dynamic>.from(data['course']);
+              print('     Code: ${course['code']}');
+              print('     Title: ${course['title']}');
+            }
+          }
         }
       }
+    } catch (e) {
+      print('❌ Hive Debug Error: $e');
     }
-  } catch (e) {
-    print('❌ Hive Debug Error: $e');
+    print('🚨 END DEBUG 🚨');
   }
-  print('🚨 END DEBUG 🚨');
-}
-
-
 
   // Debug method to show what's actually downloaded
   Future<void> _debugShowDownloadedCourses() async {
     try {
       final offlineBox = await Hive.openBox(offlineCoursesBox);
-      final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-      
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
       print('🔍 DEBUG: Downloaded course IDs: $downloadedCourseIds');
-      
+
       for (var courseId in downloadedCourseIds) {
         final courseData = offlineBox.get('course_$courseId');
         if (courseData != null && courseData['course'] != null) {
           final courseJson = Map<String, dynamic>.from(courseData['course']);
           print('   - Course $courseId: ${courseJson['code']}');
+          print('     Downloaded by user: ${courseData['user_id']}');
+          print('     Current user: $_currentUserId');
           print('     University: ${courseJson['university_id']}');
           print('     Level: ${courseJson['level_id']}');
           print('     Semester: ${courseJson['semester_id']}');
@@ -765,30 +831,197 @@ Future<void> _emergencyDebugHive() async {
     }
   }
 
-  // Main course loading method
   Future<void> _loadCourses() async {
     print('📚 Loading courses...');
-    
+    print('👤 Current user ID: $_currentUserId');
+    print('👤 Current profile: ${_currentUserProfile?.toString()}');
+
+    if (!mounted) return;
+
     setState(() {
       isLoading = true;
       hasError = false;
       errorMessage = '';
     });
-    
+
     try {
-      if (_currentUserProfile == null) {
-        print('⚠️ No user profile - loading without filtering');
-        await _loadCoursesWithoutProfile();
+      // ALWAYS check connectivity first
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isConnected = connectivityResult != ConnectivityResult.none;
+
+      print('📡 Connectivity: ${isConnected ? "Online" : "Offline"}');
+
+      if (isConnected) {
+        print('🌐 Online mode - fetching from API');
+        // If online and have profile, load with profile
+        if (_currentUserProfile != null) {
+          await _loadOnlineCoursesWithProfile(_currentUserProfile!);
+        } else {
+          await _loadCoursesWithoutProfile();
+        }
       } else {
-        await _loadCoursesWithProfile(_currentUserProfile!);
+        print('📴 OFFLINE MODE - loading from storage');
+        // Offline mode - load downloaded courses
+        await _loadOfflineCourses();
       }
     } catch (e) {
-      print('❌ Error loading courses: $e');
-      setState(() {
-        isLoading = false;
-        hasError = true;
-        errorMessage = 'Failed to load courses. Please check your connection.';
-      });
+      print('❌ Error in _loadCourses: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage = 'Failed to load courses.';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadOfflineCourses() async {
+    print('📴 _loadOfflineCourses called');
+    print('👤 User ID: $_currentUserId');
+
+    if (!mounted) return;
+
+    try {
+      // Check Hive for downloaded courses immediately
+      final offlineBox = await Hive.openBox(offlineCoursesBox);
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
+      print('📦 Downloaded course IDs: $downloadedCourseIds');
+      print('📦 Number of downloaded courses: ${downloadedCourseIds.length}');
+
+      if (downloadedCourseIds.isEmpty) {
+        print('❌ No downloaded courses found');
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            hasError = true;
+            errorMessage =
+                'No courses downloaded. Please connect to download courses.';
+          });
+        }
+        return;
+      }
+
+      // Load each downloaded course
+      final downloadedCourses = <Course>[];
+
+      for (var courseId in downloadedCourseIds) {
+        try {
+          print('📖 Loading course $courseId from Hive...');
+          final courseData = offlineBox.get('course_$courseId');
+
+          if (courseData == null) {
+            print('⚠️ Course $courseId data is null');
+            continue;
+          }
+
+          if (courseData['course'] == null) {
+            print('⚠️ Course $courseId has no course data');
+            continue;
+          }
+
+          // Check user ID
+          final downloadedByUserId = courseData['user_id']?.toString();
+          print(
+            '   Downloaded by: $downloadedByUserId, Current user: $_currentUserId',
+          );
+
+          // Show course if it matches current user OR if user ID is null (legacy courses)
+          if (_currentUserId == null ||
+              downloadedByUserId == null ||
+              downloadedByUserId == _currentUserId) {
+            final courseJson = Map<String, dynamic>.from(courseData['course']);
+
+            Color color;
+            if (courseJson['color'] is int) {
+              color = Color(courseJson['color'] as int);
+            } else if (courseJson['color_value'] is int) {
+              color = Color(courseJson['color_value'] as int);
+            } else {
+              color = Course.generateColorFromCode(
+                courseJson['code']?.toString() ?? '',
+              );
+            }
+
+            final course = Course(
+              id: courseJson['id']?.toString() ?? courseId,
+              code: courseJson['code']?.toString() ?? 'Unknown',
+              title: courseJson['title']?.toString() ?? 'No Title',
+              description: courseJson['description']?.toString(),
+              imageUrl: courseJson['image_url']?.toString(),
+              abbreviation: courseJson['abbreviation']?.toString(),
+              creditUnits: courseJson['credit_units'] is int
+                  ? courseJson['credit_units'] as int
+                  : 0,
+              universityId: courseJson['university_id']?.toString() ?? '',
+              universityName: courseJson['university_name']?.toString() ?? '',
+              levelId: courseJson['level_id']?.toString() ?? '',
+              levelName: courseJson['level_name']?.toString() ?? '',
+              semesterId: courseJson['semester_id']?.toString() ?? '',
+              semesterName: courseJson['semester_name']?.toString() ?? '',
+              departmentsInfo: courseJson['departments_info'] ?? [],
+              progress: courseJson['progress'] is int
+                  ? courseJson['progress'] as int
+                  : 0,
+              isDownloaded: true,
+              downloadDate: DateTime.now(),
+              localImagePath: courseJson['local_image_path']?.toString(),
+              color: color,
+            );
+
+            downloadedCourses.add(course);
+            print('✅ Loaded: ${course.code}');
+          } else {
+            print('⏭️ Skipping course $courseId - different user');
+          }
+        } catch (e) {
+          print('⚠️ Error loading course $courseId: $e');
+        }
+      }
+
+      if (downloadedCourses.isEmpty) {
+        print('❌ No courses loaded for current user');
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            hasError = true;
+            errorMessage = 'No courses downloaded for your account.';
+          });
+        }
+        return;
+      }
+
+      print(
+        '🎉 Successfully loaded ${downloadedCourses.length} downloaded courses',
+      );
+
+      // Update download status map
+      for (var course in downloadedCourses) {
+        isCourseDownloaded[course.id] = true;
+      }
+
+      if (mounted) {
+        setState(() {
+          allCourses = downloadedCourses;
+          filteredCourses = downloadedCourses;
+          isLoading = false;
+          hasError = false;
+          errorMessage = 'Offline: Showing your downloaded courses';
+        });
+      }
+    } catch (e) {
+      print('❌ Error in _loadOfflineCourses: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage = 'Error loading offline courses.';
+        });
+      }
     }
   }
 
@@ -796,57 +1029,68 @@ Future<void> _emergencyDebugHive() async {
     try {
       final connectivityResult = await _connectivity.checkConnectivity();
       final isConnected = connectivityResult != ConnectivityResult.none;
-      
+
       if (isConnected) {
+        print('🌐 Online - fetching courses from API');
         final courses = await _apiService.getCoursesForUser();
-        
+
         if (courses.isEmpty) {
+          print('⚠️ No courses from API, checking cache...');
           final cachedCourses = await _loadCachedCourses();
-          setState(() {
-            allCourses = cachedCourses;
-            filteredCourses = cachedCourses;
-            isLoading = false;
-            errorMessage = 'No courses available. Please set your academic profile.';
-          });
+          if (cachedCourses.isNotEmpty) {
+            final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+              cachedCourses,
+            );
+            if (mounted) {
+              setState(() {
+                allCourses = enhancedCourses;
+                filteredCourses = enhancedCourses;
+                isLoading = false;
+                errorMessage = 'Showing cached courses';
+              });
+            }
+          } else {
+            if (mounted) {
+              setState(() {
+                allCourses = [];
+                filteredCourses = [];
+                isLoading = false;
+                errorMessage =
+                    'No courses available. Please set your academic profile.';
+              });
+            }
+          }
           return;
         }
-        
+
         await _loadCoursesProgress(courses);
-        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(courses);
-        
-        setState(() {
-          allCourses = enhancedCourses;
-          filteredCourses = enhancedCourses;
-          isLoading = false;
-        });
-        
-        await _cacheCourses(enhancedCourses);
-        
-      } else {
-        final cachedCourses = await _loadCachedCourses();
-        if (cachedCourses.isNotEmpty) {
-          final enhancedCourses = await _enhanceCoursesWithDownloadStatus(cachedCourses);
+        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+          courses,
+        );
+
+        if (mounted) {
           setState(() {
             allCourses = enhancedCourses;
             filteredCourses = enhancedCourses;
             isLoading = false;
-            errorMessage = 'Offline mode: Showing all cached courses';
-          });
-        } else {
-          setState(() {
-            isLoading = false;
-            hasError = true;
-            errorMessage = 'No courses available. Please connect to the internet.';
           });
         }
+
+        await _cacheCourses(enhancedCourses);
+      } else {
+        // OFFLINE - load offline courses directly
+        print('📴 Offline - loading from storage');
+        await _loadOfflineCourses();
       }
     } catch (e) {
       print('❌ Error loading courses without profile: $e');
-      setState(() {
-        isLoading = false;
-        hasError = true;
-        errorMessage = 'Failed to load courses.';
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage = 'Failed to load courses.';
+        });
+      }
     }
   }
 
@@ -854,7 +1098,7 @@ Future<void> _emergencyDebugHive() async {
     try {
       final activationBox = await Hive.openBox(activationCacheBox);
       final cachedActivation = activationBox.get('user_activated');
-      
+
       if (cachedActivation == true) {
         if (mounted) {
           setState(() {
@@ -865,19 +1109,23 @@ Future<void> _emergencyDebugHive() async {
         }
         return;
       }
-      
+
       try {
         final activationData = await ApiService().getActivationStatus();
-        
+
         if (activationData != null && activationData.isValid) {
           await activationBox.put('user_activated', true);
           await activationBox.put('activation_grade', activationData.grade);
-          await activationBox.put('activation_timestamp', DateTime.now().toIso8601String());
-          
+          await activationBox.put(
+            'activation_timestamp',
+            DateTime.now().toIso8601String(),
+          );
+
           if (mounted) {
             setState(() {
               _isUserActivated = true;
-              _activationStatusMessage = '${activationData.grade?.toUpperCase() ?? 'Activated'}';
+              _activationStatusMessage =
+                  '${activationData.grade?.toUpperCase() ?? 'Activated'}';
               _checkingActivation = false;
             });
           }
@@ -895,8 +1143,8 @@ Future<void> _emergencyDebugHive() async {
         if (mounted) {
           setState(() {
             _isUserActivated = cachedActivation ?? false;
-            _activationStatusMessage = _isUserActivated 
-                ? 'Activated (offline)' 
+            _activationStatusMessage = _isUserActivated
+                ? 'Activated (offline)'
                 : 'Not Activated (offline)';
             _checkingActivation = false;
           });
@@ -916,59 +1164,253 @@ Future<void> _emergencyDebugHive() async {
 
   Future<void> _loadRecentCourseFromStorage() async {
     try {
+      if (_currentUserId == null) {
+        print('⚠️ Cannot load recent course: No user ID');
+        return;
+      }
+
       final box = await Hive.openBox(recentCourseBox);
-      final recentData = box.get('recent_course');
-      
-      if (recentData != null) {
-        Course? course;
-        
-        if (recentData is Map<String, dynamic>) {
-          course = Course.fromJson(recentData);
-        } else if (recentData is Course) {
-          course = recentData;
+      final userKey = 'recent_course_$_currentUserId';
+      final recentData = box.get(userKey);
+
+      if (recentData == null) {
+        print('ℹ️ No recent course found for user $_currentUserId');
+        return;
+      }
+
+      Course? course;
+
+      // Handle LinkedMap (Hive's internal Map type)
+      if (recentData is Map) {
+        try {
+          // Convert LinkedMap<dynamic, dynamic> to Map<String, dynamic>
+          final Map<String, dynamic> jsonData = {};
+          recentData.forEach((key, value) {
+            if (key is String) {
+              jsonData[key] = value;
+            } else if (key is int || key is double) {
+              jsonData[key.toString()] = value;
+            }
+          });
+
+          print('📋 Parsing JSON data with keys: ${jsonData.keys.toList()}');
+          course = Course.fromJson(jsonData);
+        } catch (e) {
+          print('❌ Error parsing Map to Course: $e');
+          print('📋 Raw data: $recentData');
         }
-        
-        if (course != null) {
-          final isDownloaded = await _isCourseDownloaded(course.id);
+      }
+      // Fallback to Course object (if adapter was working before)
+      else if (recentData is Course) {
+        course = recentData;
+      } else {
+        print('⚠️ Unexpected data type: ${recentData.runtimeType}');
+      }
+
+      if (course != null) {
+        final isDownloaded = await _isCourseDownloaded(course.id);
+        if (mounted) {
           setState(() {
             recentCourse = course;
           });
-          print('✅ Loaded recent course: ${course.code} (Downloaded: $isDownloaded)');
         }
+        print(
+          '✅ Loaded recent course for user $_currentUserId: ${course.code} (Downloaded: $isDownloaded)',
+        );
+      } else {
+        print('⚠️ Could not parse recent course data');
+        // Try to debug what's actually in the data
+        print('🔍 Raw recentData type: ${recentData.runtimeType}');
+        print('🔍 Raw recentData: $recentData');
       }
     } catch (e) {
       print('❌ Error loading recent course: $e');
     }
   }
 
-  Future<void> _saveRecentCourseToStorage(Course course) async {
+  Future<void> _debugRecentCourseStorage() async {
+    print('🔍 === DEBUG RECENT COURSE STORAGE ===');
     try {
       final box = await Hive.openBox(recentCourseBox);
-      await box.put('recent_course', course);
-      print('✅ Saved recent course to Hive: ${course.code}');
-    } catch (e) {
-      print('❌ Error saving recent course to Hive: $e');
-      
-      try {
-        final box = await Hive.openBox(recentCourseBox);
-        await box.put('recent_course', course.toJson());
-        print('✅ Saved recent course as JSON fallback: ${course.code}');
-      } catch (e2) {
-        print('❌ JSON fallback also failed: $e2');
+      print('📦 Box keys: ${box.keys.toList()}');
+
+      if (_currentUserId != null) {
+        final userKey = 'recent_course_$_currentUserId';
+        final data = box.get(userKey);
+        print('👤 User key ($userKey) exists: ${data != null}');
+        if (data != null) {
+          print('   Data type: ${data.runtimeType}');
+          if (data is Map) {
+            print('   ✅ Is Map (JSON)');
+          } else if (data is Course) {
+            print('   ✅ Is Course object');
+          }
+        }
       }
+
+      // Also check global
+      final globalData = box.get('recent_course');
+      print('🌍 Global recent course exists: ${globalData != null}');
+    } catch (e) {
+      print('❌ Debug error: $e');
+    }
+    print('🔍 === END DEBUG ===');
+  }
+
+  Future<void> _cleanupOrphanedRecentCourses() async {
+    try {
+      final box = await Hive.openBox(recentCourseBox);
+      final allKeys = box.keys.toList();
+
+      print('🧹 Cleaning up orphaned recent courses...');
+
+      for (var key in allKeys) {
+        // Check if it's a user-specific recent course
+        if (key.toString().startsWith('recent_course_user_')) {
+          final userIdFromKey = key.toString().replaceFirst(
+            'recent_course_user_',
+            '',
+          );
+
+          // If this user is not the current user, check if user still exists
+          if (userIdFromKey != _currentUserId) {
+            // Check if user exists in user_box
+            final userBox = await Hive.openBox('user_box');
+            final userExists = userBox.keys.any(
+              (userKey) => userKey.toString().contains(userIdFromKey),
+            );
+
+            if (!userExists) {
+              print(
+                '🗑️ Removing orphaned recent course for user $userIdFromKey',
+              );
+              await box.delete(key);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ Error cleaning up orphaned recent courses: $e');
     }
   }
 
-  Future<List<Course>> _enhanceCoursesWithDownloadStatus(List<Course> courses) async {
+  Future<void> _migrateOldRecentCourses() async {
+    try {
+      final box = await Hive.openBox(recentCourseBox);
+      final globalRecentData = box.get('recent_course');
+
+      if (globalRecentData != null && _currentUserId != null) {
+        final userKey = 'recent_course_user_$_currentUserId';
+
+        // Check if user doesn't already have a recent course
+        if (box.get(userKey) == null) {
+          await box.put(userKey, globalRecentData);
+          print('🔄 Migrated global recent course to user-specific storage');
+        }
+
+        // Keep the global one for backward compatibility
+      }
+    } catch (e) {
+      print('⚠️ Error migrating recent courses: $e');
+    }
+  }
+
+  Future<void> _saveRecentCourseToStorage(Course course) async {
+    try {
+      if (_currentUserId == null) {
+        print('⚠️ Cannot save recent course: No user ID');
+        return;
+      }
+
+      final box = await Hive.openBox(recentCourseBox);
+      final userKey = 'recent_course_$_currentUserId';
+
+      // ALWAYS save as JSON to avoid adapter issues
+      // Convert Course to Map<String, dynamic> explicitly
+      final courseJson = course.toJson();
+
+      // Ensure all values are JSON-serializable
+      final cleanJson = Map<String, dynamic>.from(courseJson);
+
+      // Make sure color is saved as int
+      if (course.color != null) {
+        cleanJson['color'] = course.color.value;
+        cleanJson['color_value'] = course.color.value;
+      }
+
+      // Save it
+      await box.put(userKey, cleanJson);
+
+      print(
+        '✅ Saved recent course as JSON for user $_currentUserId: ${course.code}',
+      );
+      print('📋 Saved keys: ${cleanJson.keys.toList()}');
+
+      if (mounted) {
+        setState(() {
+          recentCourse = course;
+        });
+      }
+    } catch (e) {
+      print('❌ Error saving recent course: $e');
+    }
+  }
+
+  Future<void> _fixExistingRecentCourseData() async {
+    try {
+      final box = await Hive.openBox(recentCourseBox);
+
+      if (_currentUserId != null) {
+        final userKey = 'recent_course_$_currentUserId';
+        final data = box.get(userKey);
+
+        if (data != null && data is! Map<String, dynamic>) {
+          print('🔧 Fixing corrupted recent course data...');
+
+          // Try to convert to Map<String, dynamic>
+          if (data is Map) {
+            final Map<String, dynamic> cleanData = {};
+            data.forEach((key, value) {
+              if (key is String) {
+                cleanData[key] = value;
+              } else if (key is int || key is double) {
+                cleanData[key.toString()] = value;
+              }
+            });
+
+            await box.put(userKey, cleanData);
+            print('✅ Fixed recent course data');
+          } else if (data is Course) {
+            // If it's already a Course object, convert to JSON
+            await box.put(userKey, data.toJson());
+            print('✅ Converted Course object to JSON');
+          } else {
+            // Unrecognized type, delete it
+            await box.delete(userKey);
+            print('🗑️ Deleted unrecognized recent course data');
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ Error fixing recent course data: $e');
+    }
+  }
+
+  Future<List<Course>> _enhanceCoursesWithDownloadStatus(
+    List<Course> courses,
+  ) async {
     final enhancedCourses = <Course>[];
-    
+
     try {
       final offlineBox = await Hive.openBox(offlineCoursesBox);
-      final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-      
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
       for (var course in courses) {
         final isDownloaded = downloadedCourseIds.contains(course.id);
-        
+
         String? localImagePath;
         if (isDownloaded) {
           try {
@@ -980,7 +1422,7 @@ Future<void> _emergencyDebugHive() async {
             print('⚠️ Error getting local image path for ${course.id}: $e');
           }
         }
-        
+
         final enhancedCourse = Course(
           id: course.id,
           code: course.code,
@@ -1002,14 +1444,14 @@ Future<void> _emergencyDebugHive() async {
           localImagePath: localImagePath,
           color: course.color,
         );
-        
+
         enhancedCourses.add(enhancedCourse);
       }
     } catch (e) {
       print('⚠️ Error enhancing courses: $e');
       return courses;
     }
-    
+
     return enhancedCourses;
   }
 
@@ -1017,21 +1459,52 @@ Future<void> _emergencyDebugHive() async {
     try {
       final box = await Hive.openBox(coursesCacheBox);
       final cachedData = box.get('cached_courses');
-      
-      if (cachedData != null) {
-        if (cachedData is List<Course>) {
-          print('✅ Loaded ${cachedData.length} courses as Hive objects');
-          return cachedData;
-        } else if (cachedData is List) {
-          final courses = cachedData.map((json) => Course.fromJson(json)).toList();
-          print('✅ Loaded ${courses.length} courses from JSON cache');
-          return courses;
-        }
+
+      if (cachedData == null) {
+        print('📦 No cached courses found');
+        return [];
       }
+
+      print('📦 Found cached data type: ${cachedData.runtimeType}');
+
+      if (cachedData is List<Course>) {
+        print('✅ Loaded ${cachedData.length} courses as Hive objects');
+        return cachedData;
+      } else if (cachedData is List) {
+        print('📦 Processing List of ${cachedData.length} items');
+
+        final courses = <Course>[];
+        for (var i = 0; i < cachedData.length; i++) {
+          try {
+            final item = cachedData[i];
+            if (item is Course) {
+              courses.add(item);
+            } else if (item is Map<String, dynamic>) {
+              courses.add(Course.fromJson(item));
+            } else if (item is Map) {
+              // Handle LinkedMap or other Map types
+              try {
+                final json = Map<String, dynamic>.from(item);
+                courses.add(Course.fromJson(json));
+              } catch (e) {
+                print('⚠️ Error converting map at index $i: $e');
+              }
+            }
+          } catch (e) {
+            print('⚠️ Error processing cached item at index $i: $e');
+          }
+        }
+
+        print('✅ Loaded ${courses.length} courses from cache');
+        return courses;
+      }
+
+      print('⚠️ Unknown cached data type: ${cachedData.runtimeType}');
+      return [];
     } catch (e) {
       print('❌ Error loading cached courses: $e');
+      return [];
     }
-    return [];
   }
 
   Future<void> _cacheCourses(List<Course> courses) async {
@@ -1041,7 +1514,7 @@ Future<void> _emergencyDebugHive() async {
       print('✅ Cached ${courses.length} courses as Hive objects');
     } catch (e) {
       print('❌ Error caching courses as Hive objects: $e');
-      
+
       try {
         final box = await Hive.openBox(coursesCacheBox);
         final courseData = courses.map((course) => course.toJson()).toList();
@@ -1056,12 +1529,15 @@ Future<void> _emergencyDebugHive() async {
   Future<void> _loadDownloadStatuses() async {
     try {
       final box = await Hive.openBox(offlineCoursesBox);
-      final downloadedCourseIds = box.get('downloaded_course_ids', defaultValue: <String>[]);
-      
+      final downloadedCourseIds = box.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
       for (var courseId in downloadedCourseIds) {
         isCourseDownloaded[courseId] = true;
       }
-      
+
       print('📥 Loaded ${downloadedCourseIds.length} downloaded courses');
     } catch (e) {
       print('❌ Error loading download statuses: $e');
@@ -1071,7 +1547,10 @@ Future<void> _emergencyDebugHive() async {
   Future<bool> _isCourseDownloaded(String courseId) async {
     try {
       final box = await Hive.openBox(offlineCoursesBox);
-      final downloadedCourseIds = box.get('downloaded_course_ids', defaultValue: <String>[]);
+      final downloadedCourseIds = box.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
       return downloadedCourseIds.contains(courseId);
     } catch (e) {
       return false;
@@ -1081,37 +1560,43 @@ Future<void> _emergencyDebugHive() async {
   Future<void> _loadCoursesProgress(List<Course> courses) async {
     try {
       print('📊 Loading progress for ${courses.length} courses...');
-      
+
       final userData = await _apiService.getCurrentUser();
       if (userData == null) {
         print('⚠️ No user data found');
         return;
       }
-      
+
       final userId = userData['id'].toString();
-      
+
       for (var course in courses) {
         try {
           print('📖 Calculating progress for course: ${course.code}');
-          
-          final topics = await _apiService.getTopics(courseId: int.parse(course.id));
-          
+
+          final topics = await _apiService.getTopics(
+            courseId: int.parse(course.id),
+          );
+
           if (topics.isNotEmpty) {
             print('   - Found ${topics.length} topics');
-            
+
             int completedCount = 0;
-            
+
             for (var topic in topics) {
               if (topic.isCompleted) {
                 completedCount++;
               }
             }
-            
-            final progress = topics.isNotEmpty ? ((completedCount / topics.length) * 100).round() : 0;
+
+            final progress = topics.isNotEmpty
+                ? ((completedCount / topics.length) * 100).round()
+                : 0;
             course.progress = progress;
-            
-            print('   - Progress: $progress% ($completedCount/${topics.length} topics)');
-            
+
+            print(
+              '   - Progress: $progress% ($completedCount/${topics.length} topics)',
+            );
+
             await _saveProgress(course.id, progress);
           } else {
             print('   - No topics found for this course');
@@ -1124,7 +1609,7 @@ Future<void> _emergencyDebugHive() async {
           course.progress = cachedProgress;
         }
       }
-      
+
       print('✅ Course progress loading complete');
     } catch (e) {
       print('❌ Error loading course progress: $e');
@@ -1160,11 +1645,14 @@ Future<void> _emergencyDebugHive() async {
       });
     } else {
       setState(() {
-        filteredCourses = allCourses.where((course) =>
-          course.code.toLowerCase().contains(query) ||
-          course.title.toLowerCase().contains(query) ||
-          (course.abbreviation?.toLowerCase().contains(query) ?? false)
-        ).toList();
+        filteredCourses = allCourses
+            .where(
+              (course) =>
+                  course.code.toLowerCase().contains(query) ||
+                  course.title.toLowerCase().contains(query) ||
+                  (course.abbreviation?.toLowerCase().contains(query) ?? false),
+            )
+            .toList();
       });
     }
   }
@@ -1185,13 +1673,13 @@ Future<void> _emergencyDebugHive() async {
     setState(() {
       recentCourse = course;
     });
-    
+
     final result = await Navigator.pushNamed(
-      context, 
-      '/course-detail', 
-      arguments: course
+      context,
+      '/course-detail',
+      arguments: course,
     );
-    
+
     if (mounted && result == true) {
       await refreshCourseProgress();
     }
@@ -1207,341 +1695,1640 @@ Future<void> _emergencyDebugHive() async {
     }
   }
 
-Future<void> _downloadCourseForOffline(Course course) async {
-  if (_currentUserProfile == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('❌ Please set your academic profile first'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-    return;
-  }
-
-  // Check if course is for user's department before downloading
-  final bool isForUserDepartment = course.departmentsInfo.any((deptInfo) {
-    final deptId = deptInfo['department_id']?.toString() ?? 
-                  deptInfo['id']?.toString() ?? 
-                  deptInfo['department']?.toString() ?? '';
-    return deptId == _currentUserProfile!.departmentId;
-  });
-
-  if (!isForUserDepartment) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('❌ ${course.code} is not available for your department'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-    return;
-  }
-
-  if (downloadingCourses[course.id] == true || isCourseDownloaded[course.id] == true) {
-    return;
-  }
-
-  setState(() {
-    downloadingCourses[course.id] = true;
-    downloadProgress[course.id] = 0.0;
-  });
-
-  try {
-    print('📥 Starting download for course: ${course.code} for department ${_currentUserProfile!.departmentName}');
-    
-    final userData = await _apiService.getCurrentUser();
-    if (userData == null) throw Exception('User not logged in');
-    
-    final userId = userData['id'].toString();
-    
-    Map<String, dynamic> courseJson = course.toJson();
-    courseJson['color_value'] = course.color.value;
-    courseJson['color'] = course.color.value;
-    
-    // Store with current user profile
-    final downloadRecord = DownloadRecord(
-      courseId: course.id,
-      userId: userId,
-      userProfile: _currentUserProfile,
-      downloadedAt: DateTime.now(),
-      courseUniversityId: course.universityId,
-      courseLevelId: course.levelId,
-      courseSemesterId: course.semesterId,
-    );
-    
-    final courseData = {
-      'course': courseJson,
-      'download_record': downloadRecord.toJson(),
-      'download_date': DateTime.now().toIso8601String(),
-      'user_id': userId,
-    };
-    
-    // Update progress
-    setState(() {
-      downloadProgress[course.id] = 0.1;
-    });
-    
-    // Step 1: Get course outlines
-    final outlines = await _apiService.getCourseOutlines(int.parse(course.id));
-    final outlinesJson = outlines.map((outline) => outline.toJson()).toList();
-    courseData['outlines'] = outlinesJson;
-    
-    // Update progress
-    setState(() {
-      downloadProgress[course.id] = 0.3;
-    });
-    
-    // Step 2: Get topics for each outline
-    final allTopics = <Map<String, dynamic>>[];
-    for (var outline in outlines) {
-      try {
-        final topics = await _apiService.getTopics(outlineId: int.parse(outline.id));
-        allTopics.addAll(topics.map((topic) => topic.toJson()).toList());
-      } catch (e) {
-        print('⚠️ Error getting topics for outline ${outline.id}: $e');
-      }
+  Future<void> _downloadCourseForOffline(Course course) async {
+    if (_currentUserProfile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('❌ Please set your academic profile first'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
     }
-    courseData['topics'] = allTopics;
-    
-    // Update progress
-    setState(() {
-      downloadProgress[course.id] = 0.5;
+
+    // Check if course is for user's department before downloading
+    final bool isForUserDepartment = course.departmentsInfo.any((deptInfo) {
+      final deptId =
+          deptInfo['department_id']?.toString() ??
+          deptInfo['id']?.toString() ??
+          deptInfo['department']?.toString() ??
+          '';
+      return deptId == _currentUserProfile!.departmentId;
     });
-    
-    // Step 3: Download images
-    final downloadedImages = <String, String>{};
-    
-    // Download course image if exists
-    if (course.imageUrl != null && course.imageUrl!.isNotEmpty) {
-      try {
-        final imagePath = await _downloadImage(course.imageUrl!, 'course_${course.id}');
-        if (imagePath != null) {
-          downloadedImages['course_image'] = imagePath;
-          courseData['local_image_path'] = imagePath;
-        }
-      } catch (e) {
-        print('⚠️ Error downloading course image: $e');
-      }
+
+    if (!isForUserDepartment) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '❌ ${course.code} is not available for your department',
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
     }
-    
-    // Download topic images
-    int topicImageCount = 0;
-    for (var topic in allTopics) {
-      if (topic['image'] != null && topic['image'] is String && 
-          (topic['image'] as String).isNotEmpty && 
-          (topic['image'] as String).startsWith('http')) {
+
+    if (downloadingCourses[course.id] == true ||
+        isCourseDownloaded[course.id] == true) {
+      return;
+    }
+
+    setState(() {
+      downloadingCourses[course.id] = true;
+      downloadProgress[course.id] = 0.0;
+    });
+
+    try {
+      print(
+        '📥 Starting download for course: ${course.code} for department ${_currentUserProfile!.departmentName}',
+      );
+
+      final userData = await _apiService.getCurrentUser();
+      if (userData == null) throw Exception('User not logged in');
+
+      final userId = userData['id'].toString();
+
+      Map<String, dynamic> courseJson = course.toJson();
+      courseJson['color_value'] = course.color.value;
+      courseJson['color'] = course.color.value;
+
+      // Store with current user profile
+      final downloadRecord = DownloadRecord(
+        courseId: course.id,
+        userId: userId,
+        userProfile: _currentUserProfile,
+        downloadedAt: DateTime.now(),
+        courseUniversityId: course.universityId,
+        courseLevelId: course.levelId,
+        courseSemesterId: course.semesterId,
+      );
+
+      final courseData = {
+        'course': courseJson,
+        'download_record': downloadRecord.toJson(),
+        'download_date': DateTime.now().toIso8601String(),
+        'user_id': userId,
+      };
+
+      // Update progress
+      setState(() {
+        downloadProgress[course.id] = 0.05;
+      });
+
+      // Step 1: Get course outlines
+      final outlines = await _apiService.getCourseOutlines(
+        int.parse(course.id),
+      );
+      final outlinesJson = outlines.map((outline) => outline.toJson()).toList();
+      courseData['outlines'] = outlinesJson;
+
+      // Update progress
+      setState(() {
+        downloadProgress[course.id] = 0.15;
+      });
+
+      // Step 2: Get topics for each outline
+      final allTopics = <Map<String, dynamic>>[];
+      for (var outline in outlines) {
         try {
-          final imagePath = await _downloadImage(
-            topic['image'] as String, 
-            'topic_${topic['id']}_$topicImageCount'
+          final topics = await _apiService.getTopics(
+            outlineId: int.parse(outline.id),
           );
-          if (imagePath != null) {
-            downloadedImages[topic['id'].toString()] = imagePath;
-            topicImageCount++;
+          for (var topic in topics) {
+            final topicJson = topic.toJson();
+
+            // Extract image URL from topic
+            String? topicImageUrl = topicJson['image'];
+            if (topicImageUrl == null || topicImageUrl.isEmpty) {
+              // Try other possible fields
+              topicImageUrl =
+                  topicJson['image_url'] ??
+                  topicJson['thumbnail_url'] ??
+                  topicJson['cover_image'];
+            }
+
+            // Add original image URL for reference
+            if (topicImageUrl != null && topicImageUrl.isNotEmpty) {
+              topicJson['original_image_url'] = topicImageUrl;
+            }
+
+            allTopics.add(topicJson);
           }
         } catch (e) {
-          print('⚠️ Error downloading topic image for ${topic['id']}: $e');
+          print('⚠️ Error getting topics for outline ${outline.id}: $e');
         }
       }
-    }
-    
-    courseData['downloaded_images'] = downloadedImages;
-    
-    // Update progress
-    setState(() {
-      downloadProgress[course.id] = 0.8;
-    });
-    
-    // Save to Hive
-    final offlineBox = await Hive.openBox(offlineCoursesBox);
-    
-    // Save course data as JSON
-    await offlineBox.put('course_${course.id}', courseData);
-    
-    // Update downloaded courses list
-    final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-    if (!downloadedCourseIds.contains(course.id)) {
-      downloadedCourseIds.add(course.id);
-      await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
-    }
-    
-    // Save user-course relationship
-    final userOfflineBox = await Hive.openBox(userOfflineDataBox);
-    final userCourses = userOfflineBox.get('user_${userId}_courses', defaultValue: <String>[]);
-    if (!userCourses.contains(course.id)) {
-      userCourses.add(course.id);
-      await userOfflineBox.put('user_${userId}_courses', userCourses);
-    }
-    
-    // Save user profile if not already saved
-    if (_currentUserProfile != null) {
-      await userOfflineBox.put('user_${userId}_profile', _currentUserProfile!.toJson());
-      // Also update cache
-      await _saveUserProfileToCache(_currentUserProfile!);
-    }
-    
-    // Update progress and UI
-    setState(() {
-      downloadProgress[course.id] = 1.0;
-      isCourseDownloaded[course.id] = true;
-    });
-    
-    // Update the course in the list
-    final index = allCourses.indexWhere((c) => c.id == course.id);
-    if (index != -1) {
-      allCourses[index] = allCourses[index].copyWith(
-        isDownloaded: true,
-        downloadDate: DateTime.now(),
-        localImagePath: courseData['local_image_path'] as String?,
-      );
-    }
-    
-    print('✅ Course ${course.code} downloaded successfully for offline use');
-    print('📊 Downloaded data includes:');
-    print('   - ${outlinesJson.length} outlines');
-    print('   - ${allTopics.length} topics');
-    print('   - ${downloadedImages.length} images');
-    
-    // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('✅ ${course.code} downloaded for offline use'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-    
-    // Wait a bit then reset download state
-    await Future.delayed(const Duration(seconds: 1));
-    
-  } catch (e) {
-    print('❌ Error downloading course: $e');
-    print('📋 Stack trace: ${e.toString()}');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('❌ Failed to download ${course.code}: ${e.toString()}'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  } finally {
-    if (mounted) {
+      courseData['topics'] = allTopics;
+
+      // Update progress
       setState(() {
-        downloadingCourses[course.id] = false;
-        downloadProgress.remove(course.id);
+        downloadProgress[course.id] = 0.25;
       });
+
+      // ============ DOWNLOAD PAST QUESTIONS ============
+      // try {
+      //   print('📝 Downloading past questions for course: ${course.code}');
+      //   final pastQuestions = await _apiService.getPastQuestions(
+      //     courseId: course.id,
+      //   );
+
+      //   if (pastQuestions.isNotEmpty) {
+      //     final pastQuestionsJson = pastQuestions.map((pq) {
+      //       final json = pq.toJson();
+
+      //       // IMPORTANT: Ensure session info is properly included
+      //       print('🔍 PastQuestion sessionInfo: ${pq.sessionInfo}');
+      //       print('🔍 PastQuestion sessionId: ${pq.sessionId}');
+
+      //       // If sessionInfo is empty but we have sessionId, add basic session info
+      //       if (pq.sessionInfo.isEmpty &&
+      //           pq.sessionId != null &&
+      //           pq.sessionId!.isNotEmpty) {
+      //         json['session_info'] = {
+      //           'id': pq.sessionId,
+      //           'name': 'Session ${pq.sessionId}',
+      //           'is_active': true,
+      //         };
+      //       }
+
+      //       // Store original image URLs for reference
+      //       if (pq.questionImageUrl != null &&
+      //           pq.questionImageUrl!.isNotEmpty) {
+      //         json['original_question_image_url'] = pq.questionImageUrl;
+      //       }
+      //       if (pq.solutionImageUrl != null &&
+      //           pq.solutionImageUrl!.isNotEmpty) {
+      //         json['original_solution_image_url'] = pq.solutionImageUrl;
+      //       }
+
+      //       return json;
+      //     }).toList();
+
+      //     courseData['past_questions'] = pastQuestionsJson;
+      //     print('✅ Downloaded ${pastQuestions.length} past questions');
+      //   } else {
+      //     print('ℹ️ No past questions found for this course');
+      //     courseData['past_questions'] = [];
+      //   }
+      // } catch (e) {
+      //   print('⚠️ Error downloading past questions: $e');
+      //   courseData['past_questions'] = [];
+      // }
+
+      // // Update progress
+      // setState(() {
+      //   downloadProgress[course.id] = 0.35;
+      // });
+
+      // ============ DOWNLOAD PAST QUESTIONS ============
+      try {
+        print('📝 Downloading past questions for course: ${course.code}');
+        final pastQuestions = await _apiService.getPastQuestions(
+          courseId: course.id,
+        );
+
+        if (pastQuestions.isNotEmpty) {
+          final pastQuestionsJson = pastQuestions.map((pq) {
+            // Get the JSON from the question
+            final json = pq.toJson();
+
+            // Create a clean map to ensure proper types for Hive storage
+            final cleanJson = <String, dynamic>{};
+
+            // Copy all properties ensuring String keys
+            json.forEach((key, value) {
+              if (key is String) {
+                cleanJson[key] = value;
+              } else if (key is int || key is double) {
+                cleanJson[key.toString()] = value;
+              }
+            });
+
+            // DEBUG: Log session info from the API
+            print('🔍 PastQuestion ID: ${pq.id}');
+            print('   - SessionId from API: ${pq.sessionId}');
+            print('   - SessionInfo from API: ${pq.sessionInfo}');
+            print('   - SessionInfo type: ${pq.sessionInfo.runtimeType}');
+
+            // CRITICAL FIX: Ensure session_info is properly structured
+            // Check if session_info exists and is properly formatted
+            if (pq.sessionInfo != null && pq.sessionInfo.isNotEmpty) {
+              // Session info exists from API - ensure it's properly structured
+              final sessionInfoMap = <String, dynamic>{};
+              pq.sessionInfo.forEach((key, value) {
+                if (key is String) {
+                  sessionInfoMap[key] = value;
+                } else if (key is int || key is double) {
+                  sessionInfoMap[key.toString()] = value;
+                }
+              });
+
+              // Ensure session_info has at least id and name
+              if (!sessionInfoMap.containsKey('id') && pq.sessionId != null) {
+                sessionInfoMap['id'] = pq.sessionId;
+              }
+              if (!sessionInfoMap.containsKey('name') && pq.sessionId != null) {
+                sessionInfoMap['name'] = 'Session ${pq.sessionId}';
+              }
+              if (!sessionInfoMap.containsKey('is_active')) {
+                sessionInfoMap['is_active'] = true;
+              }
+
+              cleanJson['session_info'] = sessionInfoMap;
+              print('   ✅ Using API session_info (structured)');
+            }
+            // If no session_info from API but we have session_id
+            else if (pq.sessionId != null && pq.sessionId!.isNotEmpty) {
+              // Create session_info from session_id
+              cleanJson['session_info'] = {
+                'id': pq.sessionId,
+                'name': 'Session ${pq.sessionId}',
+                'is_active': true,
+              };
+              print('   ✅ Created session_info from session_id');
+            }
+            // If no session info at all
+            else {
+              // Use a default session info
+              cleanJson['session_info'] = {
+                'id': 'unknown',
+                'name': 'Unknown Session',
+                'is_active': true,
+              };
+              print('   ⚠️ No session info, using default');
+            }
+
+            // CRITICAL: Also ensure session_id field is populated
+            if (pq.sessionId != null && pq.sessionId!.isNotEmpty) {
+              cleanJson['session_id'] = pq.sessionId;
+            } else if (cleanJson['session_info'] != null) {
+              // Get session_id from session_info if available
+              final sessionInfo = cleanJson['session_info'] as Map;
+              if (sessionInfo['id'] != null) {
+                cleanJson['session_id'] = sessionInfo['id'].toString();
+              }
+            }
+
+            // Ensure topic_info is properly structured (if exists)
+            if (pq.topicInfo != null && pq.topicInfo!.isNotEmpty) {
+              final topicInfoMap = <String, dynamic>{};
+              pq.topicInfo!.forEach((key, value) {
+                if (key is String) {
+                  topicInfoMap[key] = value;
+                } else if (key is int || key is double) {
+                  topicInfoMap[key.toString()] = value;
+                }
+              });
+              cleanJson['topic_info'] = topicInfoMap;
+            }
+
+            // Store original image URLs for reference
+            if (pq.questionImageUrl != null &&
+                pq.questionImageUrl!.isNotEmpty) {
+              cleanJson['original_question_image_url'] = pq.questionImageUrl;
+              print('   ✅ Stored original question image URL');
+            }
+            if (pq.solutionImageUrl != null &&
+                pq.solutionImageUrl!.isNotEmpty) {
+              cleanJson['original_solution_image_url'] = pq.solutionImageUrl;
+              print('   ✅ Stored original solution image URL');
+            }
+
+            // Log final structure
+            print('   ✅ Final session_info: ${cleanJson['session_info']}');
+            print('   ✅ Final session_id: ${cleanJson['session_id']}');
+            print('   ✅ Final topic_info: ${cleanJson['topic_info']}');
+
+            return cleanJson;
+          }).toList();
+
+          courseData['past_questions'] = pastQuestionsJson;
+          print('✅ Downloaded ${pastQuestions.length} past questions');
+
+          // Debug: Show sample of what was saved
+          if (pastQuestionsJson.isNotEmpty) {
+            print('📋 Sample saved past question structure:');
+            final sample = pastQuestionsJson.first;
+            print('   - ID: ${sample['id']}');
+            print('   - Session ID: ${sample['session_id']}');
+            print('   - Session Info: ${sample['session_info']}');
+            print(
+              '   - Has question image: ${sample['question_image_url'] != null}',
+            );
+          }
+        } else {
+          print('ℹ️ No past questions found for this course');
+          courseData['past_questions'] = [];
+        }
+      } catch (e) {
+        print('⚠️ Error downloading past questions: $e');
+        print('📋 Stack trace: ${e.toString()}');
+        courseData['past_questions'] = [];
+      }
+
+      // Update progress
+      setState(() {
+        downloadProgress[course.id] = 0.35;
+      });
+
+      // ============ DOWNLOAD TEST QUESTIONS ============
+      // try {
+      //   print('📝 Downloading test questions for course: ${course.code}');
+      //   final testQuestions = await _apiService.getTestQuestions(
+      //     courseId: course.id,
+      //   );
+
+      //   if (testQuestions.isNotEmpty) {
+      //     final testQuestionsJson = testQuestions.map((tq) {
+      //       final json = tq.toJson();
+
+      //       // IMPORTANT: Ensure session info is properly included
+      //       print('🔍 TestQuestion sessionInfo: ${tq.sessionInfo}');
+      //       print('🔍 TestQuestion sessionId: ${tq.sessionId}');
+
+      //       // If sessionInfo is empty but we have sessionId, add basic session info
+      //       if (tq.sessionInfo.isEmpty &&
+      //           tq.sessionId != null &&
+      //           tq.sessionId!.isNotEmpty) {
+      //         json['session_info'] = {
+      //           'id': tq.sessionId,
+      //           'name': 'Session ${tq.sessionId}',
+      //           'is_active': true,
+      //         };
+      //       }
+
+      //       // Store original image URLs for reference
+      //       if (tq.questionImageUrl != null &&
+      //           tq.questionImageUrl!.isNotEmpty) {
+      //         json['original_question_image_url'] = tq.questionImageUrl;
+      //       }
+      //       if (tq.solutionImageUrl != null &&
+      //           tq.solutionImageUrl!.isNotEmpty) {
+      //         json['original_solution_image_url'] = tq.solutionImageUrl;
+      //       }
+
+      //       return json;
+      //     }).toList();
+
+      //     courseData['test_questions'] = testQuestionsJson;
+      //     print('✅ Downloaded ${testQuestions.length} test questions');
+      //   } else {
+      //     print('ℹ️ No test questions found for this course');
+      //     courseData['test_questions'] = [];
+      //   }
+      // } catch (e) {
+      //   print('⚠️ Error downloading test questions: $e');
+      //   courseData['test_questions'] = [];
+      // }
+
+      // // Update progress
+      // setState(() {
+      //   downloadProgress[course.id] = 0.45;
+      // });
+
+      // ============ DOWNLOAD TEST QUESTIONS ============
+      try {
+        print('📝 Downloading test questions for course: ${course.code}');
+        final testQuestions = await _apiService.getTestQuestions(
+          courseId: course.id,
+        );
+
+        if (testQuestions.isNotEmpty) {
+          final testQuestionsJson = testQuestions.map((tq) {
+            final json = tq.toJson();
+            final cleanJson = <String, dynamic>{};
+
+            json.forEach((key, value) {
+              if (key is String) {
+                cleanJson[key] = value;
+              } else if (key is int || key is double) {
+                cleanJson[key.toString()] = value;
+              }
+            });
+
+            // Ensure session_info is properly structured
+            if (tq.sessionInfo != null && tq.sessionInfo.isNotEmpty) {
+              final sessionInfoMap = <String, dynamic>{};
+              tq.sessionInfo.forEach((key, value) {
+                if (key is String) {
+                  sessionInfoMap[key] = value;
+                } else if (key is int || key is double) {
+                  sessionInfoMap[key.toString()] = value;
+                }
+              });
+
+              if (!sessionInfoMap.containsKey('id') && tq.sessionId != null) {
+                sessionInfoMap['id'] = tq.sessionId;
+              }
+              if (!sessionInfoMap.containsKey('name') && tq.sessionId != null) {
+                sessionInfoMap['name'] = 'Session ${tq.sessionId}';
+              }
+              if (!sessionInfoMap.containsKey('is_active')) {
+                sessionInfoMap['is_active'] = true;
+              }
+
+              cleanJson['session_info'] = sessionInfoMap;
+            } else if (tq.sessionId != null && tq.sessionId!.isNotEmpty) {
+              cleanJson['session_info'] = {
+                'id': tq.sessionId,
+                'name': 'Session ${tq.sessionId}',
+                'is_active': true,
+              };
+            } else {
+              cleanJson['session_info'] = {
+                'id': 'unknown',
+                'name': 'Unknown Session',
+                'is_active': true,
+              };
+            }
+
+            // Ensure session_id field is populated
+            if (tq.sessionId != null && tq.sessionId!.isNotEmpty) {
+              cleanJson['session_id'] = tq.sessionId;
+            } else if (cleanJson['session_info'] != null) {
+              final sessionInfo = cleanJson['session_info'] as Map;
+              if (sessionInfo['id'] != null) {
+                cleanJson['session_id'] = sessionInfo['id'].toString();
+              }
+            }
+
+            // Store original image URLs
+            if (tq.questionImageUrl != null &&
+                tq.questionImageUrl!.isNotEmpty) {
+              cleanJson['original_question_image_url'] = tq.questionImageUrl;
+            }
+            if (tq.solutionImageUrl != null &&
+                tq.solutionImageUrl!.isNotEmpty) {
+              cleanJson['original_solution_image_url'] = tq.solutionImageUrl;
+            }
+
+            return cleanJson;
+          }).toList();
+
+          courseData['test_questions'] = testQuestionsJson;
+          print('✅ Downloaded ${testQuestions.length} test questions');
+        } else {
+          print('ℹ️ No test questions found for this course');
+          courseData['test_questions'] = [];
+        }
+      } catch (e) {
+        print('⚠️ Error downloading test questions: $e');
+        courseData['test_questions'] = [];
+      }
+      // ============ DOWNLOAD ACADEMIC SESSIONS ============
+      try {
+        print('📅 Downloading academic sessions...');
+        final sessions = await _apiService.getPastQuestionSessions();
+
+        if (sessions.isNotEmpty) {
+          final sessionsJson = sessions
+              .map((session) => session.toJson())
+              .toList();
+          courseData['sessions'] = sessionsJson;
+          print('✅ Downloaded ${sessions.length} academic sessions');
+
+          // Also save to global cache
+          final offlineBox = await Hive.openBox(offlineCoursesBox);
+          await offlineBox.put('offline_sessions_cache', sessionsJson);
+        } else {
+          print('ℹ️ No academic sessions found');
+          courseData['sessions'] = [];
+        }
+      } catch (e) {
+        print('⚠️ Error downloading academic sessions: $e');
+        courseData['sessions'] = [];
+      }
+
+      // Update progress
+      setState(() {
+        downloadProgress[course.id] = 0.55;
+      });
+
+      // Step 3: Download images
+      final downloadedImages = <String, Map<String, dynamic>>{};
+      int totalImages = 0;
+      int downloadedImagesCount = 0;
+
+      // Count total images
+      if (course.imageUrl != null && course.imageUrl!.isNotEmpty) totalImages++;
+
+      // Count topic images
+      for (var topic in allTopics) {
+        if (topic['original_image_url'] != null) totalImages++;
+
+        // Count CKEditor images in content
+        final content = topic['content'] as String?;
+        if (content != null && content.isNotEmpty) {
+          final ckeditorImages = _extractImageUrlsFromHtml(content);
+          totalImages += ckeditorImages.length;
+        }
+      }
+
+      final pastQuestionsList = courseData['past_questions'] as List? ?? [];
+      for (var pq in pastQuestionsList) {
+        if (pq is Map) {
+          if (pq['original_question_image_url'] != null) totalImages++;
+          if (pq['original_solution_image_url'] != null) totalImages++;
+        }
+      }
+
+      final testQuestionsList = courseData['test_questions'] as List? ?? [];
+      for (var tq in testQuestionsList) {
+        if (tq is Map) {
+          if (tq['original_question_image_url'] != null) totalImages++;
+          if (tq['original_solution_image_url'] != null) totalImages++;
+        }
+      }
+
+      print('📊 Total images to download: $totalImages');
+
+      // Download course image if exists
+      if (course.imageUrl != null && course.imageUrl!.isNotEmpty) {
+        try {
+          print('🖼️ Downloading course image...');
+          final imagePath = await _downloadImage(
+            course.imageUrl!,
+            'course_${course.id}',
+          );
+          if (imagePath != null) {
+            downloadedImages['course_image'] = {
+              'path': imagePath,
+              'original_url': course.imageUrl,
+              'type': 'course',
+            };
+            courseData['local_image_path'] = imagePath;
+            downloadedImagesCount++;
+          }
+
+          // Update progress based on images downloaded
+          if (totalImages > 0) {
+            setState(() {
+              downloadProgress[course.id] =
+                  0.55 + (0.30 * (downloadedImagesCount / totalImages));
+            });
+          }
+        } catch (e) {
+          print('⚠️ Error downloading course image: $e');
+        }
+      }
+
+      // Download topic images
+      for (var topic in allTopics) {
+        final originalUrl = topic['original_image_url'];
+        if (originalUrl != null &&
+            originalUrl is String &&
+            originalUrl.isNotEmpty) {
+          try {
+            print('🖼️ Downloading topic image for topic ${topic['id']}...');
+            final imagePath = await _downloadImage(
+              originalUrl,
+              'topic_${topic['id']}',
+            );
+            if (imagePath != null) {
+              downloadedImages['topic_${topic['id']}'] = {
+                'path': imagePath,
+                'original_url': originalUrl,
+                'type': 'topic',
+              };
+              topic['local_image_path'] = imagePath;
+              downloadedImagesCount++;
+            }
+
+            // Update progress
+            if (totalImages > 0) {
+              setState(() {
+                downloadProgress[course.id] =
+                    0.55 + (0.30 * (downloadedImagesCount / totalImages));
+              });
+            }
+          } catch (e) {
+            print('⚠️ Error downloading topic image for ${topic['id']}: $e');
+          }
+        }
+      }
+
+      // Download CKEditor embedded images from topic content
+      int ckeditorImageCount = 0;
+      for (var topic in allTopics) {
+        final content = topic['content'] as String?;
+        if (content != null && content.isNotEmpty) {
+          try {
+            // Extract all image URLs from CKEditor HTML content
+            final imageUrls = _extractImageUrlsFromHtml(content);
+
+            for (var imageUrl in imageUrls) {
+              if (imageUrl.isNotEmpty) {
+                try {
+                  print(
+                    '🖼️ Downloading CKEditor image for topic ${topic['id']}...',
+                  );
+                  final imagePath = await _downloadImage(
+                    imageUrl,
+                    'ckeditor_topic_${topic['id']}_$ckeditorImageCount',
+                  );
+                  if (imagePath != null) {
+                    downloadedImages['ckeditor_topic_${topic['id']}_$ckeditorImageCount'] =
+                        {
+                          'path': imagePath,
+                          'original_url': imageUrl,
+                          'type': 'ckeditor',
+                        };
+                    ckeditorImageCount++;
+                    downloadedImagesCount++;
+
+                    // Update progress
+                    if (totalImages > 0) {
+                      setState(() {
+                        downloadProgress[course.id] =
+                            0.55 +
+                            (0.30 * (downloadedImagesCount / totalImages));
+                      });
+                    }
+                  }
+                } catch (e) {
+                  print(
+                    '⚠️ Error downloading CKEditor image for topic ${topic['id']}: $e',
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            print(
+              '⚠️ Error extracting CKEditor images from topic ${topic['id']}: $e',
+            );
+          }
+        }
+      }
+
+      // Download past question images
+      for (var pq in pastQuestionsList) {
+        if (pq is Map) {
+          final questionImageUrl = pq['original_question_image_url'];
+          final solutionImageUrl = pq['original_solution_image_url'];
+
+          if (questionImageUrl != null &&
+              questionImageUrl is String &&
+              questionImageUrl.isNotEmpty) {
+            try {
+              print(
+                '🖼️ Downloading past question image for PQ ${pq['id']}...',
+              );
+              final imagePath = await _downloadImage(
+                questionImageUrl,
+                'past_question_${pq['id']}',
+              );
+              if (imagePath != null) {
+                downloadedImages['past_question_${pq['id']}'] = {
+                  'path': imagePath,
+                  'original_url': questionImageUrl,
+                  'type': 'past_question',
+                };
+                pq['local_question_image_path'] = imagePath;
+                downloadedImagesCount++;
+
+                // Update progress
+                if (totalImages > 0) {
+                  setState(() {
+                    downloadProgress[course.id] =
+                        0.55 + (0.30 * (downloadedImagesCount / totalImages));
+                  });
+                }
+              }
+            } catch (e) {
+              print(
+                '⚠️ Error downloading past question image for ${pq['id']}: $e',
+              );
+            }
+          }
+
+          if (solutionImageUrl != null &&
+              solutionImageUrl is String &&
+              solutionImageUrl.isNotEmpty) {
+            try {
+              print(
+                '🖼️ Downloading past question solution image for PQ ${pq['id']}...',
+              );
+              final imagePath = await _downloadImage(
+                solutionImageUrl,
+                'past_question_solution_${pq['id']}',
+              );
+              if (imagePath != null) {
+                downloadedImages['past_question_solution_${pq['id']}'] = {
+                  'path': imagePath,
+                  'original_url': solutionImageUrl,
+                  'type': 'past_question_solution',
+                };
+                pq['local_solution_image_path'] = imagePath;
+                downloadedImagesCount++;
+
+                // Update progress
+                if (totalImages > 0) {
+                  setState(() {
+                    downloadProgress[course.id] =
+                        0.55 + (0.30 * (downloadedImagesCount / totalImages));
+                  });
+                }
+              }
+            } catch (e) {
+              print(
+                '⚠️ Error downloading past question solution image for ${pq['id']}: $e',
+              );
+            }
+          }
+        }
+      }
+
+      // Download test question images
+      for (var tq in testQuestionsList) {
+        if (tq is Map) {
+          final questionImageUrl = tq['original_question_image_url'];
+          final solutionImageUrl = tq['original_solution_image_url'];
+
+          if (questionImageUrl != null &&
+              questionImageUrl is String &&
+              questionImageUrl.isNotEmpty) {
+            try {
+              print(
+                '🖼️ Downloading test question image for TQ ${tq['id']}...',
+              );
+              final imagePath = await _downloadImage(
+                questionImageUrl,
+                'test_question_${tq['id']}',
+              );
+              if (imagePath != null) {
+                downloadedImages['test_question_${tq['id']}'] = {
+                  'path': imagePath,
+                  'original_url': questionImageUrl,
+                  'type': 'test_question',
+                };
+                tq['local_question_image_path'] = imagePath;
+                downloadedImagesCount++;
+
+                // Update progress
+                if (totalImages > 0) {
+                  setState(() {
+                    downloadProgress[course.id] =
+                        0.55 + (0.30 * (downloadedImagesCount / totalImages));
+                  });
+                }
+              }
+            } catch (e) {
+              print(
+                '⚠️ Error downloading test question image for ${tq['id']}: $e',
+              );
+            }
+          }
+
+          if (solutionImageUrl != null &&
+              solutionImageUrl is String &&
+              solutionImageUrl.isNotEmpty) {
+            try {
+              print(
+                '🖼️ Downloading test question solution image for TQ ${tq['id']}...',
+              );
+              final imagePath = await _downloadImage(
+                solutionImageUrl,
+                'test_question_solution_${tq['id']}',
+              );
+              if (imagePath != null) {
+                downloadedImages['test_question_solution_${tq['id']}'] = {
+                  'path': imagePath,
+                  'original_url': solutionImageUrl,
+                  'type': 'test_question_solution',
+                };
+                tq['local_solution_image_path'] = imagePath;
+                downloadedImagesCount++;
+
+                // Update progress
+                if (totalImages > 0) {
+                  setState(() {
+                    downloadProgress[course.id] =
+                        0.55 + (0.30 * (downloadedImagesCount / totalImages));
+                  });
+                }
+              }
+            } catch (e) {
+              print(
+                '⚠️ Error downloading test question solution image for ${tq['id']}: $e',
+              );
+            }
+          }
+        }
+      }
+
+      courseData['downloaded_images'] = downloadedImages;
+
+      // Update progress
+      setState(() {
+        downloadProgress[course.id] = 0.85;
+      });
+
+      // Save to Hive
+      final offlineBox = await Hive.openBox(offlineCoursesBox);
+
+      // Save course data as JSON
+      await offlineBox.put('course_${course.id}', courseData);
+
+      // Update downloaded courses list
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+      if (!downloadedCourseIds.contains(course.id)) {
+        downloadedCourseIds.add(course.id);
+        await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
+      }
+
+      // Save user-course relationship
+      final userOfflineBox = await Hive.openBox(userOfflineDataBox);
+      final userCourses = userOfflineBox.get(
+        'user_${userId}_courses',
+        defaultValue: <String>[],
+      );
+      if (!userCourses.contains(course.id)) {
+        userCourses.add(course.id);
+        await userOfflineBox.put('user_${userId}_courses', userCourses);
+      }
+
+      // Save user profile if not already saved
+      if (_currentUserProfile != null) {
+        await userOfflineBox.put(
+          'user_${userId}_profile',
+          _currentUserProfile!.toJson(),
+        );
+        // Also update cache
+        await _saveUserProfileToCache(_currentUserProfile!);
+      }
+
+      // Update progress and UI
+      setState(() {
+        downloadProgress[course.id] = 1.0;
+        isCourseDownloaded[course.id] = true;
+      });
+
+      // Update the course in the list
+      final index = allCourses.indexWhere((c) => c.id == course.id);
+      if (index != -1) {
+        allCourses[index] = allCourses[index].copyWith(
+          isDownloaded: true,
+          downloadDate: DateTime.now(),
+          localImagePath: courseData['local_image_path'] as String?,
+        );
+      }
+
+      print('✅ Course ${course.code} downloaded successfully for offline use');
+      print('📊 Downloaded data includes:');
+      print('   - ${outlinesJson.length} outlines');
+      print('   - ${allTopics.length} topics');
+
+      final pastQuestionsCount = pastQuestionsList.length;
+      final testQuestionsCount = testQuestionsList.length;
+      final sessionsCount = (courseData['sessions'] is List)
+          ? (courseData['sessions'] as List).length
+          : 0;
+
+      print('   - $pastQuestionsCount past questions');
+      print('   - $testQuestionsCount test questions');
+      print('   - $sessionsCount academic sessions');
+      print('   - ${downloadedImages.length} images downloaded');
+      print('   - Downloaded by user: $userId');
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ ${course.code} downloaded for offline use'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Wait a bit then reset download state
+      await Future.delayed(const Duration(seconds: 1));
+    } catch (e) {
+      print('❌ Error downloading course: $e');
+      print('📋 Stack trace: ${e.toString()}');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to download ${course.code}: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          downloadingCourses[course.id] = false;
+          downloadProgress.remove(course.id);
+        });
+      }
     }
   }
-}
+
+  List<String> _extractImageUrlsFromHtml(String htmlContent) {
+    final List<String> imageUrls = [];
+
+    try {
+      // Extract images from <img> tags (most reliable)
+      final imgTagPattern = RegExp(r'<img[^>]*src="([^">]*)"');
+      final imgMatches = imgTagPattern.allMatches(htmlContent);
+
+      for (final match in imgMatches) {
+        final imageUrl = match.group(1) ?? '';
+        if (imageUrl.isNotEmpty && !imageUrl.startsWith('data:')) {
+          // Clean the URL
+          String cleanUrl = imageUrl.trim();
+
+          // Remove query parameters
+          final queryIndex = cleanUrl.indexOf('?');
+          if (queryIndex != -1) {
+            cleanUrl = cleanUrl.substring(0, queryIndex);
+          }
+
+          // Remove fragments
+          final fragmentIndex = cleanUrl.indexOf('#');
+          if (fragmentIndex != -1) {
+            cleanUrl = cleanUrl.substring(0, fragmentIndex);
+          }
+
+          if (!imageUrls.contains(cleanUrl)) {
+            imageUrls.add(cleanUrl);
+            print('📷 Found image URL: $cleanUrl');
+          }
+        }
+      }
+
+      // Additional simple checks for common patterns
+      if (htmlContent.contains('uploads/')) {
+        // Look for uploads/ patterns (simple substring search)
+        final uploadsStart = 'uploads/';
+        int startIndex = 0;
+
+        while ((startIndex = htmlContent.indexOf(uploadsStart, startIndex)) !=
+            -1) {
+          // Find the end of the URL (space, quote, bracket, etc.)
+          int endIndex = startIndex + uploadsStart.length;
+          while (endIndex < htmlContent.length) {
+            final char = htmlContent[endIndex];
+            if (char == ' ' ||
+                char == '"' ||
+                char == "'" ||
+                char == '>' ||
+                char == '<') {
+              break;
+            }
+            endIndex++;
+          }
+
+          if (endIndex > startIndex + uploadsStart.length) {
+            final url = htmlContent.substring(startIndex, endIndex);
+            // Check if it ends with an image extension
+            if (_isImageUrl(url) && !imageUrls.contains(url)) {
+              imageUrls.add(url);
+              print('📷 Found uploads image: $url');
+            }
+          }
+
+          startIndex = endIndex;
+        }
+      }
+
+      // Check for media/ patterns
+      if (htmlContent.contains('media/')) {
+        final mediaStart = 'media/';
+        int startIndex = 0;
+
+        while ((startIndex = htmlContent.indexOf(mediaStart, startIndex)) !=
+            -1) {
+          int endIndex = startIndex + mediaStart.length;
+          while (endIndex < htmlContent.length) {
+            final char = htmlContent[endIndex];
+            if (char == ' ' ||
+                char == '"' ||
+                char == "'" ||
+                char == '>' ||
+                char == '<') {
+              break;
+            }
+            endIndex++;
+          }
+
+          if (endIndex > startIndex + mediaStart.length) {
+            final url = htmlContent.substring(startIndex, endIndex);
+            if (_isImageUrl(url) && !imageUrls.contains(url)) {
+              imageUrls.add(url);
+              print('📷 Found media image: $url');
+            }
+          }
+
+          startIndex = endIndex;
+        }
+      }
+
+      print('📊 Extracted ${imageUrls.length} images from HTML');
+    } catch (e) {
+      print('❌ Error extracting image URLs from HTML: $e');
+    }
+
+    return imageUrls;
+  }
+
+  bool _isImageUrl(String url) {
+    // Check if URL ends with an image extension
+    final lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.jpg') ||
+        lowerUrl.endsWith('.jpeg') ||
+        lowerUrl.endsWith('.png') ||
+        lowerUrl.endsWith('.gif') ||
+        lowerUrl.endsWith('.bmp') ||
+        lowerUrl.endsWith('.webp') ||
+        lowerUrl.endsWith('.svg');
+  }
 
   Future<String?> _downloadImage(String imageUrl, String fileName) async {
     try {
-      if (!imageUrl.startsWith('http')) {
-        print('⚠️ Skipping invalid image URL: $imageUrl');
+      // Skip if empty URL
+      if (imageUrl.isEmpty) {
+        print('⚠️ Skipping empty image URL');
         return null;
       }
-      
-      final appDir = await getApplicationDocumentsDirectory();
-      final imagesDir = Directory('${appDir.path}/offline_images');
-      if (!await imagesDir.exists()) {
-        await imagesDir.create(recursive: true);
+
+      // Convert relative URLs to absolute URLs
+      String fullImageUrl = imageUrl;
+
+      if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+        // Handle different relative URL patterns
+        if (imageUrl.startsWith('/')) {
+          // Django media path starting with /
+          fullImageUrl = '${ApiEndpoints.baseUrl}$imageUrl';
+        } else if (imageUrl.startsWith('media/')) {
+          // Django media path without starting /
+          fullImageUrl = '${ApiEndpoints.baseUrl}/$imageUrl';
+        } else if (imageUrl.startsWith('uploads/')) {
+          // CKEditor uploads path
+          fullImageUrl = '${ApiEndpoints.baseUrl}/media/$imageUrl';
+        } else if (imageUrl.startsWith('ckeditor/')) {
+          // CKEditor path
+          fullImageUrl = '${ApiEndpoints.baseUrl}/media/$imageUrl';
+        } else {
+          // Assume it's a relative path
+          fullImageUrl = '${ApiEndpoints.baseUrl}/media/$imageUrl';
+        }
       }
-      
-      final cleanFileName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-      final fileExtension = imageUrl.split('.').last.split('?').first;
-      final filePath = '${imagesDir.path}/${cleanFileName}_${DateTime.now().millisecondsSinceEpoch}.${fileExtension.length <= 4 ? fileExtension : 'jpg'}';
-      
-      print('📷 Downloading image: $imageUrl');
-      
-      await _dio.download(
-        imageUrl,
-        filePath,
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            final progress = received / total;
-            print('   Image download progress: ${(progress * 100).toStringAsFixed(1)}%');
+
+      // Clean up any double slashes
+      fullImageUrl = fullImageUrl.replaceAll('//media/', '/media/');
+      if (fullImageUrl.contains(':///')) {
+        fullImageUrl = fullImageUrl.replaceAll(':///', '://');
+      }
+
+      print('📷 Downloading image: $fullImageUrl');
+      print('📷 Original URL: $imageUrl');
+
+      // Check if we're on web platform
+      if (kIsWeb) {
+        print('🌐 Web platform - storing image data in Hive');
+
+        try {
+          // For web, download the image as bytes and store in Hive
+          final response = await _dio.get(
+            fullImageUrl,
+            options: Options(responseType: ResponseType.bytes),
+          );
+
+          if (response.statusCode == 200 && response.data != null) {
+            // Generate a unique key for the image
+            final imageKey =
+                'image_${DateTime.now().millisecondsSinceEpoch}_${fileName.hashCode}';
+
+            // Store image bytes in Hive
+            final imageBox = await Hive.openBox('offline_images');
+            await imageBox.put(imageKey, {
+              'data': response.data,
+              'url': imageUrl, // Store original URL for reference
+              'full_url': fullImageUrl,
+              'filename': fileName,
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+
+            print('✅ Image stored in Hive with key: $imageKey');
+
+            // Return a special format to identify Hive-stored images
+            return 'hive://$imageKey';
+          } else {
+            print('⚠️ Failed to download image: HTTP ${response.statusCode}');
+            return null;
           }
-        },
-      );
-      
-      print('✅ Image saved to: $filePath');
-      return filePath;
+        } catch (e) {
+          print('⚠️ Error downloading image on web: $e');
+          // On web, if we can't download, return the URL as fallback
+          return fullImageUrl;
+        }
+      }
+
+      // For mobile/desktop: Save to file system
+      try {
+        final appDir = await getApplicationDocumentsDirectory();
+        final imagesDir = Directory('${appDir.path}/offline_images');
+        if (!await imagesDir.exists()) {
+          await imagesDir.create(recursive: true);
+        }
+
+        // Clean filename
+        final cleanFileName = fileName
+            .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')
+            .replaceAll(RegExp(r'_+'), '_')
+            .trim();
+
+        // Get file extension
+        String fileExtension = 'jpg';
+        final urlWithoutQuery = fullImageUrl.split('?').first;
+        final extensionMatch = RegExp(
+          r'\.([a-zA-Z0-9]+)$',
+        ).firstMatch(urlWithoutQuery);
+        if (extensionMatch != null && extensionMatch.group(1)!.length <= 4) {
+          fileExtension = extensionMatch.group(1)!;
+        }
+
+        final filePath =
+            '${imagesDir.path}/${cleanFileName}_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+
+        // Download the file
+        await _dio.download(
+          fullImageUrl,
+          filePath,
+          onReceiveProgress: (received, total) {
+            if (total != -1) {
+              final progress = received / total;
+              if (progress % 0.1 < 0.01) {
+                // Log every 10%
+                print(
+                  '   Image download: ${(progress * 100).toStringAsFixed(0)}%',
+                );
+              }
+            }
+          },
+        );
+
+        // Verify file was created
+        final file = File(filePath);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          print(
+            '✅ Image saved: $filePath (${(fileSize / 1024).toStringAsFixed(1)} KB)',
+          );
+          return filePath;
+        } else {
+          print('⚠️ File was not created: $filePath');
+          return null;
+        }
+      } catch (e) {
+        print('❌ Error saving image to file: $e');
+
+        // Check if it's a MissingPluginException (might be in test environment)
+        if (e.toString().contains('MissingPluginException')) {
+          print('⚠️ Platform not fully supported, using URL as fallback');
+          return fullImageUrl;
+        }
+
+        return null;
+      }
     } catch (e) {
-      print('❌ Error downloading image: $e');
+      print('❌ Error in _downloadImage: $e');
+      print('   Image URL: $imageUrl');
       return null;
     }
   }
 
+  Widget _loadImageFromAnySource(String? source, {BoxFit fit = BoxFit.cover}) {
+    if (source == null || source.isEmpty) {
+      return Container(
+        color: Colors.grey.shade200,
+        child: const Icon(Icons.image, color: Colors.grey),
+      );
+    }
+
+    // Check if it's a Hive-stored image (web)
+    if (source.startsWith('hive://')) {
+      final imageKey = source.replaceFirst('hive://', '');
+      return FutureBuilder(
+        future: _loadHiveImage(imageKey),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              color: Colors.grey.shade200,
+              child: const CircularProgressIndicator(),
+            );
+          } else if (snapshot.hasError || snapshot.data == null) {
+            return Container(
+              color: Colors.grey.shade200,
+              child: const Icon(Icons.broken_image, color: Colors.grey),
+            );
+          } else {
+            return Image.memory(
+              snapshot.data!,
+              fit: fit,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey.shade200,
+                  child: const Icon(Icons.broken_image, color: Colors.grey),
+                );
+              },
+            );
+          }
+        },
+      );
+    }
+
+    // Check if it's a local file path
+    if (source.startsWith('/') && !source.startsWith('http')) {
+      return Image.file(
+        File(source),
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.grey.shade200,
+            child: const Icon(Icons.broken_image, color: Colors.grey),
+          );
+        },
+      );
+    }
+
+    // It's a network URL
+    return CachedNetworkImage(
+      imageUrl: source.startsWith('http')
+          ? source
+          : '${ApiEndpoints.baseUrl}${source.startsWith('/') ? '' : '/'}$source',
+      fit: fit,
+      placeholder: (context, url) => Container(
+        color: Colors.grey.shade200,
+        child: const CircularProgressIndicator(),
+      ),
+      errorWidget: (context, url, error) => Container(
+        color: Colors.grey.shade200,
+        child: const Icon(Icons.broken_image, color: Colors.grey),
+      ),
+    );
+  }
+
+  Future<Uint8List?> _loadHiveImage(String imageKey) async {
+    try {
+      final imageBox = await Hive.openBox('offline_images');
+      final imageData = imageBox.get(imageKey);
+
+      if (imageData != null && imageData['data'] != null) {
+        return Uint8List.fromList(List<int>.from(imageData['data']));
+      }
+      return null;
+    } catch (e) {
+      print('❌ Error loading Hive image: $e');
+      return null;
+    }
+  }
+
+  // Future<void> _deleteDownloadedCourse(Course course) async {
+  //   try {
+  //     final offlineBox = await Hive.openBox(offlineCoursesBox);
+
+  //     final courseData = offlineBox.get('course_${course.id}');
+  //     if (courseData != null) {
+  //       // Delete all downloaded images
+  //       if (courseData['downloaded_images'] != null) {
+  //         final images = Map<String, String>.from(
+  //           courseData['downloaded_images'],
+  //         );
+
+  //         for (final imagePath in images.values) {
+  //           try {
+  //             final file = File(imagePath);
+  //             if (await file.exists()) {
+  //               await file.delete();
+  //               print('🗑️ Deleted image: $imagePath');
+  //             }
+  //           } catch (e) {
+  //             print('⚠️ Could not delete image $imagePath: $e');
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     await offlineBox.delete('course_${course.id}');
+
+  //     final downloadedCourseIds = offlineBox.get(
+  //       'downloaded_course_ids',
+  //       defaultValue: <String>[],
+  //     );
+  //     downloadedCourseIds.remove(course.id);
+  //     await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
+
+  //     final userData = await _apiService.getCurrentUser();
+  //     if (userData != null) {
+  //       final userId = userData['id'].toString();
+  //       final userOfflineBox = await Hive.openBox(userOfflineDataBox);
+  //       final userCourses = userOfflineBox.get(
+  //         'user_${userId}_courses',
+  //         defaultValue: <String>[],
+  //       );
+  //       userCourses.remove(course.id);
+  //       await userOfflineBox.put('user_${userId}_courses', userCourses);
+  //     }
+
+  //     setState(() {
+  //       isCourseDownloaded[course.id] = false;
+
+  //       final index = allCourses.indexWhere((c) => c.id == course.id);
+  //       if (index != -1) {
+  //         allCourses[index] = allCourses[index].copyWith(
+  //           isDownloaded: false,
+  //           downloadDate: null,
+  //           localImagePath: null,
+  //         );
+  //       }
+  //     });
+
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('🗑️ Course removed from offline storage'),
+  //         backgroundColor: Colors.orange,
+  //         duration: Duration(seconds: 2),
+  //       ),
+  //     );
+
+  //     print('🗑️ Course ${course.code} deleted from offline storage');
+  //   } catch (e) {
+  //     print('❌ Error deleting downloaded course: $e');
+
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('❌ Failed to remove ${course.code}'),
+  //         backgroundColor: Colors.red,
+  //         duration: const Duration(seconds: 2),
+  //       ),
+  //     );
+  //   }
+  // }
+
   Future<void> _deleteDownloadedCourse(Course course) async {
     try {
+      print(
+        '🗑️ Starting deletion of course: ${course.code} (ID: ${course.id})',
+      );
+
       final offlineBox = await Hive.openBox(offlineCoursesBox);
-      
+      final userOfflineBox = await Hive.openBox(userOfflineDataBox);
+
+      // Get the course data first to check what needs to be deleted
       final courseData = offlineBox.get('course_${course.id}');
-      if (courseData != null && courseData['downloaded_images'] != null) {
-        final images = Map<String, String>.from(courseData['downloaded_images']);
-        
-        for (final imagePath in images.values) {
+
+      if (courseData != null) {
+        print('📦 Found course data in Hive');
+
+        // Delete downloaded images from Hive (for web platform)
+        if (kIsWeb) {
           try {
-            final file = File(imagePath);
-            if (await file.exists()) {
-              await file.delete();
-              print('🗑️ Deleted image: $imagePath');
+            final downloadedImages =
+                courseData['downloaded_images'] as Map<String, dynamic>?;
+            if (downloadedImages != null) {
+              print(
+                '🖼️ Deleting ${downloadedImages.length} images from Hive...',
+              );
+
+              final imageBox = await Hive.openBox('offline_images');
+              for (final entry in downloadedImages.entries) {
+                final imageInfo = entry.value as Map<String, dynamic>;
+                final imagePath = imageInfo['path'] as String?;
+
+                if (imagePath != null && imagePath.startsWith('hive://')) {
+                  final imageKey = imagePath.replaceFirst('hive://', '');
+                  await imageBox.delete(imageKey);
+                  print('   Deleted Hive image: $imageKey');
+                }
+              }
             }
           } catch (e) {
-            print('⚠️ Could not delete image $imagePath: $e');
+            print('⚠️ Error deleting images from Hive: $e');
+          }
+        } else {
+          // Delete downloaded images from file system (for mobile/desktop)
+          if (courseData['downloaded_images'] != null) {
+            try {
+              final images = Map<String, dynamic>.from(
+                courseData['downloaded_images'],
+              );
+              print('🖼️ Deleting ${images.length} images from file system...');
+
+              for (final entry in images.entries) {
+                final imageInfo = entry.value as Map<String, dynamic>;
+                final imagePath = imageInfo['path'] as String?;
+
+                if (imagePath != null && imagePath.startsWith('/')) {
+                  try {
+                    final file = File(imagePath);
+                    if (await file.exists()) {
+                      await file.delete();
+                      print('   Deleted file: $imagePath');
+                    }
+                  } catch (e) {
+                    print('⚠️ Could not delete image $imagePath: $e');
+                  }
+                }
+              }
+            } catch (e) {
+              print('⚠️ Error processing downloaded images: $e');
+            }
           }
         }
+
+        // Delete the course data from Hive
+        await offlineBox.delete('course_${course.id}');
+        print('✅ Deleted course data from Hive');
+      } else {
+        print('⚠️ No course data found in Hive for course ${course.id}');
       }
-      
-      await offlineBox.delete('course_${course.id}');
-      
-      final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
+
+      // Update downloaded courses list
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
+      final originalCount = downloadedCourseIds.length;
       downloadedCourseIds.remove(course.id);
-      await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
-      
+      final newCount = downloadedCourseIds.length;
+
+      if (originalCount != newCount) {
+        await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
+        print('✅ Updated downloaded_course_ids: removed course ${course.id}');
+      } else {
+        print('⚠️ Course ${course.id} was not in downloaded_course_ids list');
+      }
+
+      // Remove user-course relationship
       final userData = await _apiService.getCurrentUser();
       if (userData != null) {
         final userId = userData['id'].toString();
-        final userOfflineBox = await Hive.openBox(userOfflineDataBox);
-        final userCourses = userOfflineBox.get('user_${userId}_courses', defaultValue: <String>[]);
+
+        // Remove from user-specific courses list
+        final userCourses = userOfflineBox.get(
+          'user_${userId}_courses',
+          defaultValue: <String>[],
+        );
+
+        final userOriginalCount = userCourses.length;
         userCourses.remove(course.id);
-        await userOfflineBox.put('user_${userId}_courses', userCourses);
-      }
-      
-      setState(() {
-        isCourseDownloaded[course.id] = false;
-        
-        final index = allCourses.indexWhere((c) => c.id == course.id);
-        if (index != -1) {
-          allCourses[index] = allCourses[index].copyWith(
-            isDownloaded: false,
-            downloadDate: null,
-            localImagePath: null,
-          );
+        final userNewCount = userCourses.length;
+
+        if (userOriginalCount != userNewCount) {
+          await userOfflineBox.put('user_${userId}_courses', userCourses);
+          print('✅ Removed course from user_${userId}_courses');
         }
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🗑️ Course removed from offline storage'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      
-      print('🗑️ Course ${course.code} deleted from offline storage');
-    } catch (e) {
-      print('❌ Error deleting downloaded course: $e');
-      
+
+        // Also delete any user-specific course data
+        await userOfflineBox.delete('user_${userId}_course_${course.id}');
+
+        // Clean up any orphaned user data
+        await _cleanupOrphanedUserData(userId);
+      }
+
+      // Clean up any cached data for this course
+      await _cleanupCachedCourseData(course.id);
+
+      // Update UI state
+      if (mounted) {
+        setState(() {
+          // Remove download status
+          isCourseDownloaded.remove(course.id);
+          downloadingCourses.remove(course.id);
+          downloadProgress.remove(course.id);
+
+          // Update the course in the list
+          final index = allCourses.indexWhere((c) => c.id == course.id);
+          if (index != -1) {
+            allCourses[index] = allCourses[index].copyWith(
+              isDownloaded: false,
+              downloadDate: null,
+              localImagePath: null,
+            );
+          }
+
+          // Also update filtered courses
+          final filteredIndex = filteredCourses.indexWhere(
+            (c) => c.id == course.id,
+          );
+          if (filteredIndex != -1) {
+            filteredCourses[filteredIndex] = filteredCourses[filteredIndex]
+                .copyWith(
+                  isDownloaded: false,
+                  downloadDate: null,
+                  localImagePath: null,
+                );
+          }
+        });
+      }
+
+      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('❌ Failed to remove ${course.code}'),
-          backgroundColor: Colors.red,
+          content: Text('🗑️ "${course.code}" removed from offline storage'),
+          backgroundColor: Colors.orange,
           duration: const Duration(seconds: 2),
         ),
       );
+
+      print(
+        '✅ Course ${course.code} successfully deleted from offline storage',
+      );
+    } catch (e) {
+      print('❌ Error deleting downloaded course: $e');
+      print('📋 Stack trace: $e');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to remove ${course.code}: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _cleanupOrphanedUserData(String userId) async {
+    try {
+      final userOfflineBox = await Hive.openBox(userOfflineDataBox);
+
+      // Check if user has any courses left
+      final userCourses = userOfflineBox.get(
+        'user_${userId}_courses',
+        defaultValue: <String>[],
+      );
+
+      if (userCourses.isEmpty) {
+        print(
+          '🧹 User $userId has no downloaded courses, cleaning up orphaned data...',
+        );
+
+        // Remove user profile if no courses left
+        await userOfflineBox.delete('user_${userId}_profile');
+        print('   Removed orphaned user profile');
+
+        // You could also clean up other user-specific data here
+      }
+    } catch (e) {
+      print('⚠️ Error cleaning up orphaned user data: $e');
+    }
+  }
+
+  Future<void> _cleanupCachedCourseData(String courseId) async {
+    try {
+      print('🧹 Cleaning up cached data for course $courseId');
+
+      // Clean up from various cache boxes
+      final boxesToClean = [
+        'courses_cache',
+        'course_outlines_cache',
+        'course_topics_cache',
+        'course_progress',
+      ];
+
+      for (final boxName in boxesToClean) {
+        try {
+          final box = await Hive.openBox(boxName);
+          final keys = box.keys.toList();
+
+          for (final key in keys) {
+            final keyStr = key.toString();
+            if (keyStr.contains(courseId)) {
+              await box.delete(key);
+              print('   Deleted from $boxName: $keyStr');
+            }
+          }
+
+          // Also try deleting with common patterns
+          final patterns = [
+            'course_$courseId',
+            'outlines_$courseId',
+            'topics_$courseId',
+            courseId, // The ID itself
+          ];
+
+          for (final pattern in patterns) {
+            if (box.containsKey(pattern)) {
+              await box.delete(pattern);
+              print('   Deleted pattern from $boxName: $pattern');
+            }
+          }
+
+          await box.close();
+        } catch (e) {
+          print('⚠️ Error cleaning up $boxName: $e');
+        }
+      }
+
+      print('✅ Successfully cleaned up cached data for course $courseId');
+    } catch (e) {
+      print('❌ Error in _cleanupCachedCourseData: $e');
     }
   }
 
@@ -1549,41 +3336,53 @@ Future<void> _downloadCourseForOffline(Course course) async {
     try {
       final userData = await _apiService.getCurrentUser();
       if (userData == null) return;
-      
+
       final userId = userData['id'].toString();
       final offlineBox = await Hive.openBox(offlineCoursesBox);
       final userOfflineBox = await Hive.openBox(userOfflineDataBox);
-      
+
       final profileData = userOfflineBox.get('user_${userId}_profile');
       UserProfile? storedProfile;
       if (profileData != null) {
-        storedProfile = UserProfile.fromJson(Map<String, dynamic>.from(profileData));
+        storedProfile = UserProfile.fromJson(
+          Map<String, dynamic>.from(profileData),
+        );
       }
-      
-      final userCourses = userOfflineBox.get('user_${userId}_courses', defaultValue: <String>[]);
-      final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
-      
+
+      final userCourses = userOfflineBox.get(
+        'user_${userId}_courses',
+        defaultValue: <String>[],
+      );
+      final downloadedCourseIds = offlineBox.get(
+        'downloaded_course_ids',
+        defaultValue: <String>[],
+      );
+
       final coursesToRemove = <String>[];
-      
+
       for (var courseId in userCourses) {
         try {
           final userSpecificKey = 'user_${userId}_course_${courseId}';
-          final courseData = offlineBox.get(userSpecificKey) ?? offlineBox.get('course_$courseId');
-          
+          final courseData =
+              offlineBox.get(userSpecificKey) ??
+              offlineBox.get('course_$courseId');
+
           if (courseData != null) {
-            if (_currentUserProfile != null && 
+            if (_currentUserProfile != null &&
                 _currentUserProfile!.departmentId.isNotEmpty) {
-              
               final downloadRecordJson = courseData['download_record'];
               if (downloadRecordJson != null) {
                 final downloadRecord = DownloadRecord.fromJson(
-                  Map<String, dynamic>.from(downloadRecordJson)
+                  Map<String, dynamic>.from(downloadRecordJson),
                 );
-                
+
                 // Check if downloaded for different department
                 if (downloadRecord.userProfile != null &&
-                    downloadRecord.userProfile!.departmentId != _currentUserProfile!.departmentId) {
-                  print('🗑️ Removing download from different department: $courseId');
+                    downloadRecord.userProfile!.departmentId !=
+                        _currentUserProfile!.departmentId) {
+                  print(
+                    '🗑️ Removing download from different department: $courseId',
+                  );
                   coursesToRemove.add(courseId);
                 }
               }
@@ -1593,17 +3392,19 @@ Future<void> _downloadCourseForOffline(Course course) async {
           print('⚠️ Error checking course $courseId: $e');
         }
       }
-      
+
       for (var courseId in coursesToRemove) {
         offlineBox.delete('user_${userId}_course_$courseId');
         offlineBox.delete('course_$courseId');
-        
+
         userCourses.remove(courseId);
         downloadedCourseIds.remove(courseId);
-        
+
         final courseData = offlineBox.get('course_$courseId');
         if (courseData != null && courseData['downloaded_images'] != null) {
-          final images = Map<String, String>.from(courseData['downloaded_images']);
+          final images = Map<String, String>.from(
+            courseData['downloaded_images'],
+          );
           for (final imagePath in images.values) {
             try {
               final file = File(imagePath);
@@ -1616,12 +3417,11 @@ Future<void> _downloadCourseForOffline(Course course) async {
           }
         }
       }
-      
+
       await userOfflineBox.put('user_${userId}_courses', userCourses);
       await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
-      
+
       print('✅ Cleaned up ${coursesToRemove.length} invalid downloads');
-      
     } catch (e) {
       print('❌ Error cleaning up downloads: $e');
     }
@@ -1634,16 +3434,21 @@ Future<void> _downloadCourseForOffline(Course course) async {
         final userId = userData['id'].toString();
         final offlineBox = await Hive.openBox(offlineCoursesBox);
         final userOfflineBox = await Hive.openBox(userOfflineDataBox);
-        
-        final userCourses = userOfflineBox.get('user_${userId}_courses', defaultValue: <String>[]);
-        
+
+        final userCourses = userOfflineBox.get(
+          'user_${userId}_courses',
+          defaultValue: <String>[],
+        );
+
         for (var courseId in userCourses) {
           offlineBox.delete('user_${userId}_course_$courseId');
           offlineBox.delete('course_$courseId');
-          
+
           final courseData = offlineBox.get('course_$courseId');
           if (courseData != null && courseData['downloaded_images'] != null) {
-            final images = Map<String, String>.from(courseData['downloaded_images']);
+            final images = Map<String, String>.from(
+              courseData['downloaded_images'],
+            );
             for (final imagePath in images.values) {
               try {
                 final file = File(imagePath);
@@ -1656,16 +3461,19 @@ Future<void> _downloadCourseForOffline(Course course) async {
             }
           }
         }
-        
+
         await userOfflineBox.delete('user_${userId}_courses');
         await userOfflineBox.delete('user_${userId}_profile');
-        
-        final downloadedCourseIds = offlineBox.get('downloaded_course_ids', defaultValue: <String>[]);
+
+        final downloadedCourseIds = offlineBox.get(
+          'downloaded_course_ids',
+          defaultValue: <String>[],
+        );
         for (var courseId in userCourses) {
           downloadedCourseIds.remove(courseId);
         }
         await offlineBox.put('downloaded_course_ids', downloadedCourseIds);
-        
+
         print('✅ Cleared all downloads for user $userId');
       }
     } catch (e) {
@@ -1702,31 +3510,31 @@ Future<void> _downloadCourseForOffline(Course course) async {
               children: [
                 // Search Bar
                 _buildSearchBar(),
-                
+
                 // Activation Status Banner
                 if (!_isUserActivated && !_checkingActivation)
                   _buildActivationBanner(),
-                
+
                 // Advert Board
                 _buildAdvertBoard(),
-                
+
                 // Loading state
                 if (isLoading) _buildLoadingState(),
-                
+
                 // Error state
                 if (hasError && !isLoading) _buildErrorState(),
-                
+
                 // Recent Course Section
-                if (!isLoading && !hasError && recentCourse != null) 
+                if (!isLoading && !hasError && recentCourse != null)
                   _buildRecentCourse(recentCourse!),
-                
+
                 // All Courses Section
                 if (!isLoading && !hasError) _buildAllCoursesSection(),
-                
+
                 // Empty state
                 if (!isLoading && !hasError && allCourses.isEmpty)
                   _buildEmptyState(),
-                
+
                 const SizedBox(height: 20),
               ],
             ),
@@ -1762,10 +3570,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 hintText: 'Search for courses...',
-                hintStyle: TextStyle(
-                  color: Color(0xFF999999),
-                  fontSize: 16,
-                ),
+                hintStyle: TextStyle(color: Color(0xFF999999), fontSize: 16),
               ),
               style: const TextStyle(fontSize: 16),
             ),
@@ -1779,7 +3584,11 @@ Future<void> _downloadCourseForOffline(Course course) async {
                   color: const Color(0xFFF8F9FA),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF666666)),
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: Color(0xFF666666),
+                ),
               ),
             ),
         ],
@@ -1863,7 +3672,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          image: advertImageUrl != null 
+          image: advertImageUrl != null
               ? DecorationImage(
                   image: AssetImage(advertImageUrl!),
                   fit: BoxFit.cover,
@@ -1873,7 +3682,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
                   ),
                 )
               : null,
-          gradient: advertImageUrl == null 
+          gradient: advertImageUrl == null
               ? const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -1907,15 +3716,16 @@ Future<void> _downloadCourseForOffline(Course course) async {
                 const SizedBox(height: 8),
                 const Text(
                   'Discover new courses and advance your skills',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Icon(Icons.add_photo_alternate_rounded, size: 16, color: Colors.white),
+                    const Icon(
+                      Icons.add_photo_alternate_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                     const SizedBox(width: 6),
                     const Text(
                       'Change promotional image',
@@ -1945,10 +3755,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
             SizedBox(height: 20),
             Text(
               'Loading your courses...',
-              style: TextStyle(
-                color: Color(0xFF666666),
-                fontSize: 16,
-              ),
+              style: TextStyle(color: Color(0xFF666666), fontSize: 16),
             ),
           ],
         ),
@@ -1956,35 +3763,109 @@ Future<void> _downloadCourseForOffline(Course course) async {
     );
   }
 
+  // Widget _buildErrorState() {
+  //   return Padding(
+  //     padding: const EdgeInsets.all(40),
+  //     child: Center(
+  //       child: Column(
+  //         children: [
+  //           const Icon(Icons.error_outline, size: 60, color: Colors.orange),
+  //           const SizedBox(height: 20),
+  //           Text(
+  //             errorMessage,
+  //             style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
+  //             textAlign: TextAlign.center,
+  //           ),
+  //           const SizedBox(height: 20),
+  //           ElevatedButton(
+  //             onPressed: _refreshCourses,
+  //             style: ElevatedButton.styleFrom(
+  //               backgroundColor: const Color(0xFF667eea),
+  //               shape: RoundedRectangleBorder(
+  //                 borderRadius: BorderRadius.circular(10),
+  //               ),
+  //             ),
+  //             child: const Text('Retry', style: TextStyle(color: Colors.white)),
+  //           ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
+
   Widget _buildErrorState() {
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(Icons.error_outline, size: 60, color: Colors.orange),
             const SizedBox(height: 20),
             Text(
               errorMessage,
-              style: const TextStyle(
-                color: Color(0xFF666666),
-                fontSize: 16,
-              ),
+              style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 10),
+
+            // Show additional info if offline
+            if (errorMessage.contains('offline') ||
+                errorMessage.contains('Offline'))
+              Column(
+                children: [
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Your downloaded courses should appear here.',
+                    style: TextStyle(color: Color(0xFF999999), fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'User ID: $_currentUserId',
+                    style: const TextStyle(
+                      color: Color(0xFF999999),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _refreshCourses,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF667eea),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: _refreshCourses,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667eea),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
-              ),
-              child: const Text(
-                'Retry',
-                style: TextStyle(color: Colors.white),
-              ),
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: () async {
+                    await _emergencyDebugHive();
+                    await _debugShowDownloadedCourses();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF667eea)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Debug',
+                    style: TextStyle(color: Color(0xFF667eea)),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1994,12 +3875,14 @@ Future<void> _downloadCourseForOffline(Course course) async {
 
   Widget _buildEmptyState() {
     String message;
-    if (_currentUserProfile != null && _currentUserProfile!.departmentId.isNotEmpty) {
-      message = 'No courses available for ${_currentUserProfile!.departmentName} at your academic level.';
+    if (_currentUserProfile != null &&
+        _currentUserProfile!.departmentId.isNotEmpty) {
+      message =
+          'No courses available for ${_currentUserProfile!.departmentName} at your academic level.';
     } else {
       message = 'No courses found. Please set your academic profile.';
     }
-    
+
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Center(
@@ -2009,17 +3892,18 @@ Future<void> _downloadCourseForOffline(Course course) async {
             const SizedBox(height: 20),
             Text(
               message,
-              style: const TextStyle(
-                color: Color(0xFF666666),
-                fontSize: 16,
-              ),
+              style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 10),
-            if (_currentUserProfile == null || _currentUserProfile!.departmentId.isEmpty)
+            if (_currentUserProfile == null ||
+                _currentUserProfile!.departmentId.isEmpty)
               ElevatedButton(
                 onPressed: () async {
-                  final result = await Navigator.pushNamed(context, '/academic_setup');
+                  final result = await Navigator.pushNamed(
+                    context,
+                    '/academic_setup',
+                  );
                   if (mounted && result == 'updated') {
                     await _refreshUserProfileInBackground();
                     await _loadCourses();
@@ -2095,7 +3979,10 @@ Future<void> _downloadCourseForOffline(Course course) async {
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [course.color, _darkenColor(course.color, 0.2)],
+                          colors: [
+                            course.color,
+                            _darkenColor(course.color, 0.2),
+                          ],
                         ),
                         borderRadius: BorderRadius.circular(15),
                       ),
@@ -2163,11 +4050,16 @@ Future<void> _downloadCourseForOffline(Course course) async {
                       if (isDownloaded && !isDownloading)
                         Container(
                           margin: const EdgeInsets.only(top: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.green.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.green.withOpacity(0.3)),
+                            border: Border.all(
+                              color: Colors.green.withOpacity(0.3),
+                            ),
                           ),
                           child: Text(
                             'Available offline',
@@ -2205,7 +4097,9 @@ Future<void> _downloadCourseForOffline(Course course) async {
                             CircularProgressIndicator(
                               value: progress,
                               strokeWidth: 3,
-                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF667eea),
+                              ),
                             ),
                             Text(
                               '${(progress * 100).toInt()}%',
@@ -2229,7 +4123,11 @@ Future<void> _downloadCourseForOffline(Course course) async {
                             value: 'delete',
                             child: Row(
                               children: [
-                                const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                                const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 8),
                                 const Text('Remove offline'),
                               ],
@@ -2250,9 +4148,11 @@ Future<void> _downloadCourseForOffline(Course course) async {
                         ),
                       ),
                     const SizedBox(height: 8),
-                    const Icon(Icons.arrow_forward_ios_rounded, 
-                         size: 18, 
-                         color: Color(0xFF667eea)),
+                    const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 18,
+                      color: Color(0xFF667eea),
+                    ),
                   ],
                 ),
               ],
@@ -2318,10 +4218,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: Text(
               'No courses found matching your search',
-              style: TextStyle(
-                color: Color(0xFF999999),
-                fontSize: 16,
-              ),
+              style: TextStyle(color: Color(0xFF999999), fontSize: 16),
               textAlign: TextAlign.center,
             ),
           )
@@ -2393,14 +4290,19 @@ Future<void> _downloadCourseForOffline(Course course) async {
                 ),
               ),
             ),
-            
+
             // Download button overlay
             Positioned(
               top: 10,
               right: 10,
-              child: _buildDownloadButton(course, isDownloaded, isDownloading, progress),
+              child: _buildDownloadButton(
+                course,
+                isDownloaded,
+                isDownloading,
+                progress,
+              ),
             ),
-            
+
             // Content
             Padding(
               padding: const EdgeInsets.all(18),
@@ -2417,7 +4319,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
                       color: Color(0xFF333333),
                     ),
                   ),
-                  
+
                   // Course Title
                   Text(
                     course.title,
@@ -2429,7 +4331,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  
+
                   // Progress indicator
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2450,7 +4352,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
                                   gradient: LinearGradient(
                                     colors: [
                                       _darkenColor(course.color, 0.3),
-                                      _darkenColor(course.color, 0.1)
+                                      _darkenColor(course.color, 0.1),
                                     ],
                                   ),
                                   borderRadius: BorderRadius.circular(3),
@@ -2498,7 +4400,12 @@ Future<void> _downloadCourseForOffline(Course course) async {
     );
   }
 
-  Widget _buildDownloadButton(Course course, bool isDownloaded, bool isDownloading, double progress) {
+  Widget _buildDownloadButton(
+    Course course,
+    bool isDownloaded,
+    bool isDownloading,
+    double progress,
+  ) {
     if (isDownloading) {
       return Container(
         width: 36,
@@ -2514,20 +4421,19 @@ Future<void> _downloadCourseForOffline(Course course) async {
             CircularProgressIndicator(
               value: progress,
               strokeWidth: 2,
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF667eea),
+              ),
             ),
             Text(
               '${(progress * 100).toInt()}',
-              style: const TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold),
             ),
           ],
         ),
-        );
+      );
     }
-    
+
     if (isDownloaded) {
       return PopupMenuButton<String>(
         onSelected: (value) {
@@ -2540,7 +4446,11 @@ Future<void> _downloadCourseForOffline(Course course) async {
             value: 'delete',
             child: Row(
               children: [
-                const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.red,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Text('Remove offline'),
               ],
@@ -2561,7 +4471,7 @@ Future<void> _downloadCourseForOffline(Course course) async {
         ),
       );
     }
-    
+
     return GestureDetector(
       onTap: () => _downloadCourseForOffline(course),
       child: Container(

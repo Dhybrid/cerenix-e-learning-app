@@ -5,6 +5,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/constants/endpoints.dart';
+// ADD THIS IMPORT:
+import '../../../features/courses/models/course_models.dart';
 
 class ProfileDetailsScreen extends StatefulWidget {
   const ProfileDetailsScreen({super.key});
@@ -18,18 +20,106 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   Map<String, dynamic> _userData = {};
   bool _isLoading = false;
   String? _errorMessage;
-  final RefreshController _refreshController = RefreshController(initialRefresh: false);
+  final RefreshController _refreshController = RefreshController(
+    initialRefresh: false,
+  );
   bool _hasData = false;
-  
+
   // NEW FIELDS FOR RANK AND REFERRAL
   String _userRank = 'Regular';
   String _referralCode = '';
   Map<String, dynamic>? _currentActivation;
 
+  // ADD THESE TWO LINES HERE:
+  List<Course> _userCourses = []; // Add this line
+  bool _loadingCourses = false; // Add this line
+
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _fetchUserCourses(); // ADD THIS LINE
+  }
+
+  // ADD THIS METHOD: Fetch user courses
+  Future<void> _fetchUserCourses() async {
+    if (_loadingCourses) return;
+
+    setState(() {
+      _loadingCourses = true;
+    });
+
+    try {
+      // Fetch courses for the logged-in user
+      final courses = await ApiService().getCoursesForUser();
+
+      if (courses.isNotEmpty) {
+        // Load progress for each course
+        await _loadCoursesProgress(courses);
+
+        setState(() {
+          _userCourses = courses;
+        });
+      } else {
+        setState(() {
+          _userCourses = [];
+        });
+      }
+    } catch (e) {
+      print('❌ Error fetching user courses: $e');
+      setState(() {
+        _userCourses = [];
+      });
+    } finally {
+      setState(() {
+        _loadingCourses = false;
+      });
+    }
+  }
+
+  // ADD THIS METHOD: Load course progress
+  Future<void> _loadCoursesProgress(List<Course> courses) async {
+    try {
+      for (var course in courses) {
+        try {
+          // Get topics for this course
+          final topics = await ApiService().getTopics(
+            courseId: int.parse(course.id),
+          );
+
+          if (topics.isNotEmpty) {
+            int completedCount = 0;
+            for (var topic in topics) {
+              if (topic.isCompleted) {
+                completedCount++;
+              }
+            }
+
+            // Calculate progress percentage
+            final progress = topics.isNotEmpty
+                ? ((completedCount / topics.length) * 100).round()
+                : 0;
+
+            // Update course progress
+            course.progress = progress;
+          } else {
+            course.progress = 0;
+          }
+        } catch (e) {
+          course.progress = 0;
+        }
+      }
+    } catch (e) {
+      for (var course in courses) {
+        course.progress = 0;
+      }
+    }
+  }
+
+  // ADD THIS METHOD: Helper for course colors
+  Color _getCourseColor(int index) {
+    // Alternate between blue and orange
+    return index.isEven ? Colors.blue : Colors.orange;
   }
 
   // UPDATED: Enhanced data loading with rank and referral
@@ -41,19 +131,19 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
       final box = await Hive.openBox('user_box');
       final userData = box.get('current_user');
-      
+
       if (userData != null) {
         setState(() {
           _userData = Map<String, dynamic>.from(userData);
           _hasData = true;
         });
-        
+
         // Load activation status for rank
         await _loadActivationStatus();
-        
+
         // Load referral code
         await _loadReferralCode();
-        
+
         print('📱 Loaded complete user data');
         print('   - Rank: $_userRank');
         print('   - Referral Code: $_referralCode');
@@ -79,7 +169,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   Future<void> _loadActivationStatus() async {
     try {
       final activationData = await ApiService().getActivationStatus();
-      
+
       if (activationData != null) {
         setState(() {
           _currentActivation = activationData.toJson();
@@ -104,7 +194,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   Future<void> _loadReferralCode() async {
     try {
       final referralInfo = await ApiService().getUserReferral();
-      
+
       if (referralInfo != null && referralInfo['referral_code'] != null) {
         setState(() {
           _referralCode = referralInfo['referral_code'];
@@ -134,11 +224,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
       final box = await Hive.openBox('user_box');
       final currentUser = box.get('current_user');
-      
+
       if (currentUser != null) {
         final userId = currentUser['id'];
         final email = currentUser['email'];
-        
+
         // Update profile to get fresh data
         await ApiService().updateProfile(
           userId: userId,
@@ -148,10 +238,13 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           phone: _userData['phone'] ?? '',
           location: _userData['location'] ?? '',
         );
-        
+
         // Reload all data
         await _loadUserData();
-        
+
+        // ADD THIS LINE: Refresh courses
+        await _fetchUserCourses();
+
         print('🔄 Refreshed all user data');
       }
     } catch (e) {
@@ -159,7 +252,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       setState(() {
         _errorMessage = 'Failed to refresh data: $e';
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -182,16 +275,16 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   }
 
   bool _hasAcademicData() {
-    return _userData['level'] != null || 
-           _userData['department'] != null || 
-           _userData['faculty'] != null || 
-           _userData['university'] != null;
+    return _userData['level'] != null ||
+        _userData['department'] != null ||
+        _userData['faculty'] != null ||
+        _userData['university'] != null;
   }
 
   // Get user information with proper fallbacks
   String get _userName => _userData['name'] ?? 'User Name';
   String get _userBio => _userData['bio']?.toString() ?? "No bio available";
-  
+
   // Academic information with proper nested access
   String get _userLevel {
     if (_userData['level'] is Map) {
@@ -202,16 +295,18 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
   String get _userDepartment {
     if (_userData['department'] is Map) {
-      return _userData['department']?['abbreviation'] ?? 
-             _userData['department']?['name'] ?? 'Not set';
+      return _userData['department']?['abbreviation'] ??
+          _userData['department']?['name'] ??
+          'Not set';
     }
     return 'Not set';
   }
 
   String get _userFaculty {
     if (_userData['faculty'] is Map) {
-      return _userData['faculty']?['abbreviation'] ?? 
-             _userData['faculty']?['name'] ?? 'Not set';
+      return _userData['faculty']?['abbreviation'] ??
+          _userData['faculty']?['name'] ??
+          'Not set';
     }
     return 'Not set';
   }
@@ -279,12 +374,14 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
   // UPDATED: Copy referral code only
   void _copyReferralCode() {
-    if (_referralCode.isEmpty || _referralCode == 'Not Available' || _referralCode == 'Error Loading') {
+    if (_referralCode.isEmpty ||
+        _referralCode == 'Not Available' ||
+        _referralCode == 'Error Loading') {
       return;
     }
-    
+
     Clipboard.setData(ClipboardData(text: _referralCode));
-    
+
     setState(() {
       _showCopiedMessage = true;
     });
@@ -300,11 +397,15 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
   // UPDATED: Share referral code only
   void _shareReferralCode() {
-    if (_referralCode.isEmpty || _referralCode == 'Not Available' || _referralCode == 'Error Loading') {
+    if (_referralCode.isEmpty ||
+        _referralCode == 'Not Available' ||
+        _referralCode == 'Error Loading') {
       return;
     }
-    
-    Share.share('Join me on Cerenix! Use my referral code: $_referralCode\n\nGet exclusive rewards when you sign up with this code! 🎉');
+
+    Share.share(
+      'Join me on Cerenix! Use my referral code: $_referralCode\n\nGet exclusive rewards when you sign up with this code! 🎉',
+    );
   }
 
   Widget _buildLoadingIndicator() {
@@ -344,11 +445,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
+          Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
           Text(
             'Unable to load profile',
@@ -362,9 +459,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           Text(
             _errorMessage ?? 'Please check your connection and try again',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(color: Colors.grey.shade500),
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
@@ -474,10 +569,14 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                             ),
                           ),
                         ),
-                        
+
                         // Back button and level at the top
                         Padding(
-                          padding: const EdgeInsets.only(top: 25, left: 15, right: 15),
+                          padding: const EdgeInsets.only(
+                            top: 25,
+                            left: 15,
+                            right: 15,
+                          ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -490,21 +589,32 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                                   shape: BoxShape.circle,
                                 ),
                                 child: IconButton(
-                                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+                                  icon: const Icon(
+                                    Icons.arrow_back_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
                                   onPressed: () => Navigator.pop(context),
                                 ),
                               ),
-                              
+
                               // Level indicator
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withOpacity(0.3),
                                   borderRadius: BorderRadius.circular(15),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.school_rounded, color: Colors.white, size: 14),
+                                    Icon(
+                                      Icons.school_rounded,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
                                     const SizedBox(width: 4),
                                     Text(
                                       _userLevel,
@@ -548,7 +658,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       ],
                     ),
                   ),
-                  
+
                   // Profile picture floating between sections
                   Transform.translate(
                     offset: const Offset(0, -60),
@@ -557,27 +667,25 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       height: 100,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 4,
-                        ),
+                        border: Border.all(color: Colors.white, width: 4),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.2),
                             blurRadius: 12,
                             offset: const Offset(0, 4),
-                        ),
+                          ),
                         ],
                       ),
                       child: ClipOval(
-                        child: _avatarUrl.isNotEmpty 
+                        child: _avatarUrl.isNotEmpty
                             ? Image.network(
                                 _avatarUrl,
                                 fit: BoxFit.cover,
-                                loadingBuilder: (context, child, loadingProgress) {
-                                  if (loadingProgress == null) return child;
-                                  return _buildDefaultAvatar();
-                                },
+                                loadingBuilder:
+                                    (context, child, loadingProgress) {
+                                      if (loadingProgress == null) return child;
+                                      return _buildDefaultAvatar();
+                                    },
                                 errorBuilder: (context, error, stackTrace) {
                                   return _buildDefaultAvatar();
                                 },
@@ -586,7 +694,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       ),
                     ),
                   ),
-                  
+
                   // User info with professional layout
                   Transform.translate(
                     offset: const Offset(0, -50),
@@ -614,7 +722,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                               ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
                               child: Container(
                                 width: 4,
                                 height: 4,
@@ -647,33 +757,36 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       ],
                     ),
                   ),
-                  
+
                   // Profile content
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 5,
+                    ),
                     child: Column(
                       children: [
                         const SizedBox(height: 5),
-                        
+
                         // User stats with improved pipes - UPDATED WITH ACTUAL RANK
                         _buildUserStats(),
                         const SizedBox(height: 15),
-                        
+
                         // Bio section
                         _buildBioSection(),
                         const SizedBox(height: 15),
-                        
+
                         // Course information
                         _buildCourseInfo(),
                         const SizedBox(height: 15),
-                        
+
                         // Current courses
                         _buildCurrentCourses(),
                         const SizedBox(height: 20),
-                        
+
                         // Invite friends button
                         _buildInviteButton(),
-                        
+
                         const SizedBox(height: 15),
                       ],
                     ),
@@ -693,7 +806,10 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               left: 20,
               right: 20,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.green,
                   borderRadius: BorderRadius.circular(12),
@@ -731,18 +847,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.blue.shade400,
-            Colors.orange.shade300,
-          ],
+          colors: [Colors.blue.shade400, Colors.orange.shade300],
         ),
         shape: BoxShape.circle,
       ),
-      child: const Icon(
-        Icons.person_rounded,
-        color: Colors.white,
-        size: 40,
-      ),
+      child: const Icon(Icons.person_rounded, color: Colors.white, size: 40),
     );
   }
 
@@ -752,10 +861,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.blue.shade50,
-            Colors.orange.shade50,
-          ],
+          colors: [Colors.blue.shade50, Colors.orange.shade50],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -770,29 +876,36 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _buildStatItem(
-            _userRank, 
-            'Rank', 
-            _getRankIcon(_userRank), 
-            _getRankColor(_userRank)
+            _userRank,
+            'Rank',
+            _getRankIcon(_userRank),
+            _getRankColor(_userRank),
           ),
-          Container(
-            width: 2,
-            height: 35,
-            color: Colors.grey.shade300,
+          Container(width: 2, height: 35, color: Colors.grey.shade300),
+          _buildStatItem(
+            '15',
+            'Rewards',
+            Icons.card_giftcard_rounded,
+            Colors.orange,
           ),
-          _buildStatItem('15', 'Rewards', Icons.card_giftcard_rounded, Colors.orange),
-          Container(
-            width: 2,
-            height: 35,
-            color: Colors.grey.shade300,
+          Container(width: 2, height: 35, color: Colors.grey.shade300),
+          _buildStatItem(
+            '85%',
+            'Strength',
+            Icons.fitness_center_rounded,
+            Colors.blue,
           ),
-          _buildStatItem('85%', 'Strength', Icons.fitness_center_rounded, Colors.blue),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(String value, String label, IconData icon, Color color) {
+  Widget _buildStatItem(
+    String value,
+    String label,
+    IconData icon,
+    Color color,
+  ) {
     return Flexible(
       child: Column(
         children: [
@@ -921,11 +1034,21 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           Row(
             children: [
               Expanded(
-                child: _buildInfoItem('Level', _userLevel, Icons.school_rounded, Colors.blue),
+                child: _buildInfoItem(
+                  'Level',
+                  _userLevel,
+                  Icons.school_rounded,
+                  Colors.blue,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildInfoItem('Department', _userDepartment, Icons.business_rounded, Colors.orange),
+                child: _buildInfoItem(
+                  'Department',
+                  _userDepartment,
+                  Icons.business_rounded,
+                  Colors.orange,
+                ),
               ),
             ],
           ),
@@ -933,11 +1056,21 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           Row(
             children: [
               Expanded(
-                child: _buildInfoItem('Faculty', _userFaculty, Icons.account_balance_rounded, Colors.blue),
+                child: _buildInfoItem(
+                  'Faculty',
+                  _userFaculty,
+                  Icons.account_balance_rounded,
+                  Colors.blue,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _buildInfoItem('Semester', _userSemester, Icons.calendar_today_rounded, Colors.orange),
+                child: _buildInfoItem(
+                  'Semester',
+                  _userSemester,
+                  Icons.calendar_today_rounded,
+                  Colors.orange,
+                ),
               ),
             ],
           ),
@@ -946,15 +1079,17 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     );
   }
 
-  Widget _buildInfoItem(String title, String value, IconData icon, Color color) {
+  Widget _buildInfoItem(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            color.withOpacity(0.05),
-            color.withOpacity(0.1),
-          ],
+          colors: [color.withOpacity(0.05), color.withOpacity(0.1)],
         ),
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: color.withOpacity(0.2)),
@@ -988,6 +1123,48 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     );
   }
 
+  // Widget _buildCurrentCourses() {
+  //   return Container(
+  //     padding: const EdgeInsets.all(20),
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.circular(20),
+  //       boxShadow: [
+  //         BoxShadow(
+  //           color: Colors.black.withOpacity(0.1),
+  //           blurRadius: 15,
+  //           offset: const Offset(0, 5),
+  //         ),
+  //       ],
+  //     ),
+  //     child: Column(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         const Text(
+  //           'Ongoing Courses',
+  //           style: TextStyle(
+  //             fontSize: 18,
+  //             fontWeight: FontWeight.w700,
+  //             color: Colors.black87,
+  //           ),
+  //         ),
+  //         const SizedBox(height: 16),
+  //         Column(
+  //           children: [
+  //             _buildCourseItem('PHY 101', 'General Physics I', '85%', Colors.blue),
+  //             const SizedBox(height: 10),
+  //             _buildCourseItem('MTH 101', 'Elementary Mathematics I', '92%', Colors.orange),
+  //             const SizedBox(height: 10),
+  //             _buildCourseItem('CHM 101', 'General Chemistry I', '78%', Colors.blue),
+  //             const SizedBox(height: 10),
+  //             _buildCourseItem('CSC 101', 'Introduction to Computing', '95%', Colors.orange),
+  //           ],
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
   Widget _buildCurrentCourses() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1014,31 +1191,127 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Column(
-            children: [
-              _buildCourseItem('PHY 101', 'General Physics I', '85%', Colors.blue),
-              const SizedBox(height: 10),
-              _buildCourseItem('MTH 101', 'Elementary Mathematics I', '92%', Colors.orange),
-              const SizedBox(height: 10),
-              _buildCourseItem('CHM 101', 'General Chemistry I', '78%', Colors.blue),
-              const SizedBox(height: 10),
-              _buildCourseItem('CSC 101', 'Introduction to Computing', '95%', Colors.orange),
-            ],
-          ),
+
+          if (_loadingCourses)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_userCourses.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  'No courses available',
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                ),
+              ),
+            )
+          else
+            _buildCoursesList(),
         ],
       ),
     );
   }
 
-  Widget _buildCourseItem(String code, String title, String progress, Color color) {
+  // ADD THIS HELPER METHOD:
+  Widget _buildCoursesList() {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        // Track if we're showing all courses or just first 4
+        var showAll = false;
+
+        // Determine which courses to show
+        final coursesToShow = showAll || _userCourses.length <= 4
+            ? _userCourses
+            : _userCourses.sublist(0, 4);
+
+        return Column(
+          children: [
+            // Course items
+            Column(
+              children: coursesToShow.asMap().entries.map((entry) {
+                final index = entry.key;
+                final course = entry.value;
+                final color = _getCourseColor(index);
+
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index < coursesToShow.length - 1 ? 10 : 0,
+                  ),
+                  child: _buildCourseItem(
+                    course.code,
+                    course.title,
+                    '${course.progress}%',
+                    color,
+                  ),
+                );
+              }).toList(),
+            ),
+
+            // Show All/Show Less button
+            if (_userCourses.length > 4)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      showAll = !showAll;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          showAll
+                              ? 'Show Less'
+                              : 'Show All (${_userCourses.length})',
+                          style: TextStyle(
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          showAll ? Icons.expand_less : Icons.expand_more,
+                          color: Colors.blue.shade700,
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  // KEEP THIS METHOD EXACTLY AS IT IS (it's already correct):
+  Widget _buildCourseItem(
+    String code,
+    String title,
+    String progress,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            color.withOpacity(0.05),
-            color.withOpacity(0.1),
-          ],
+          colors: [color.withOpacity(0.05), color.withOpacity(0.1)],
         ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.2)),
@@ -1078,10 +1351,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                 ),
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -1106,16 +1378,89 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     );
   }
 
+  // Widget _buildCourseItem(String code, String title, String progress, Color color) {
+  //   return Container(
+  //     padding: const EdgeInsets.all(12),
+  //     decoration: BoxDecoration(
+  //       gradient: LinearGradient(
+  //         colors: [
+  //           color.withOpacity(0.05),
+  //           color.withOpacity(0.1),
+  //         ],
+  //       ),
+  //       borderRadius: BorderRadius.circular(12),
+  //       border: Border.all(color: color.withOpacity(0.2)),
+  //     ),
+  //     child: Row(
+  //       children: [
+  //         Container(
+  //           width: 40,
+  //           height: 40,
+  //           decoration: BoxDecoration(
+  //             color: color.withOpacity(0.15),
+  //             borderRadius: BorderRadius.circular(8),
+  //           ),
+  //           child: Center(
+  //             child: Text(
+  //               code.split(' ')[0],
+  //               style: TextStyle(
+  //                 fontSize: 12,
+  //                 fontWeight: FontWeight.w700,
+  //                 color: color,
+  //               ),
+  //             ),
+  //           ),
+  //         ),
+  //         const SizedBox(width: 12),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 code,
+  //                 style: const TextStyle(
+  //                   fontSize: 14,
+  //                   fontWeight: FontWeight.w600,
+  //                   color: Colors.black87,
+  //                 ),
+  //               ),
+  //               Text(
+  //                 title,
+  //                 style: TextStyle(
+  //                   fontSize: 12,
+  //                   color: Colors.grey.shade600,
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //         Container(
+  //           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+  //           decoration: BoxDecoration(
+  //             color: color.withOpacity(0.15),
+  //             borderRadius: BorderRadius.circular(12),
+  //           ),
+  //           child: Text(
+  //             progress,
+  //             style: TextStyle(
+  //               fontSize: 12,
+  //               fontWeight: FontWeight.w700,
+  //               color: color,
+  //             ),
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
   Widget _buildInviteButton() {
     return Container(
       width: double.infinity,
       height: 50,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.blue.shade500,
-            Colors.orange.shade400,
-          ],
+          colors: [Colors.blue.shade500, Colors.orange.shade400],
         ),
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
@@ -1191,23 +1536,17 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             const SizedBox(height: 8),
             Text(
               'Share your referral code and get exclusive rewards',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 25),
-            
+
             // Referral Code Display with Copy Functionality
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Colors.blue.shade50,
-                    Colors.orange.shade50,
-                  ],
+                  colors: [Colors.blue.shade50, Colors.orange.shade50],
                 ),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: Colors.blue.shade100),
@@ -1223,18 +1562,27 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Referral Code with Copy Button
                   GestureDetector(
-                    onTap: _referralCode.isNotEmpty && _referralCode != 'Not Available' && _referralCode != 'Error Loading' 
-                        ? _copyReferralCode 
+                    onTap:
+                        _referralCode.isNotEmpty &&
+                            _referralCode != 'Not Available' &&
+                            _referralCode != 'Error Loading'
+                        ? _copyReferralCode
                         : null,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(15),
-                        border: Border.all(color: Colors.blue.shade200, width: 2),
+                        border: Border.all(
+                          color: Colors.blue.shade200,
+                          width: 2,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.blue.shade100,
@@ -1255,7 +1603,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                               letterSpacing: 2,
                             ),
                           ),
-                          if (_referralCode.isNotEmpty && _referralCode != 'Not Available' && _referralCode != 'Error Loading') ...[
+                          if (_referralCode.isNotEmpty &&
+                              _referralCode != 'Not Available' &&
+                              _referralCode != 'Error Loading') ...[
                             const SizedBox(width: 12),
                             Icon(
                               Icons.content_copy_rounded,
@@ -1268,15 +1618,21 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // Copy Instruction
-                  if (_referralCode.isNotEmpty && _referralCode != 'Not Available' && _referralCode != 'Error Loading')
+                  if (_referralCode.isNotEmpty &&
+                      _referralCode != 'Not Available' &&
+                      _referralCode != 'Error Loading')
                     GestureDetector(
                       onTap: _copyReferralCode,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.content_copy_rounded, size: 16, color: Colors.blue.shade500),
+                          Icon(
+                            Icons.content_copy_rounded,
+                            size: 16,
+                            color: Colors.blue.shade500,
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             'Tap to copy code',
@@ -1289,11 +1645,12 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                         ],
                       ),
                     ),
-                  
+
                   // Error or Unavailable Message
-                  if (_referralCode == 'Not Available' || _referralCode == 'Error Loading')
+                  if (_referralCode == 'Not Available' ||
+                      _referralCode == 'Error Loading')
                     Text(
-                      _referralCode == 'Not Available' 
+                      _referralCode == 'Not Available'
                           ? 'Referral code not available at the moment'
                           : 'Failed to load referral code',
                       style: TextStyle(
@@ -1307,9 +1664,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            
+
             // Action Buttons
-            if (_referralCode.isNotEmpty && _referralCode != 'Not Available' && _referralCode != 'Error Loading')
+            if (_referralCode.isNotEmpty &&
+                _referralCode != 'Not Available' &&
+                _referralCode != 'Error Loading')
               Row(
                 children: [
                   // Copy Button
@@ -1339,7 +1698,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  
+
                   // Share Button
                   Expanded(
                     child: SizedBox(
@@ -1367,9 +1726,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                   ),
                 ],
               ),
-            
+
             const SizedBox(height: 10),
-            
+
             // Instructions
             Container(
               padding: const EdgeInsets.all(16),
@@ -1382,7 +1741,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.emoji_events_rounded, color: Colors.green.shade600, size: 18),
+                      Icon(
+                        Icons.emoji_events_rounded,
+                        color: Colors.green.shade600,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'How it works:',

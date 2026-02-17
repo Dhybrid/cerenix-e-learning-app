@@ -1,21 +1,21 @@
-// lib/features/past_questions/screens/past_questions_selection_screen.dart
+// lib/features/test_questions/screens/test_questions_selection_screen.dart
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../../core/network/api_service.dart';
 import '../../../features/courses/models/course_models.dart';
-import '../models/past_question_models.dart';
+import '../models/test_question_models.dart';
 
-class PastQuestionsSelectionScreen extends StatefulWidget {
-  const PastQuestionsSelectionScreen({super.key});
+class TestQuestionsSelectionScreen extends StatefulWidget {
+  const TestQuestionsSelectionScreen({super.key});
 
   @override
-  State<PastQuestionsSelectionScreen> createState() =>
-      _PastQuestionsSelectionScreenState();
+  State<TestQuestionsSelectionScreen> createState() =>
+      _TestQuestionsSelectionScreenState();
 }
 
-class _PastQuestionsSelectionScreenState
-    extends State<PastQuestionsSelectionScreen> {
+class _TestQuestionsSelectionScreenState
+    extends State<TestQuestionsSelectionScreen> {
   final ApiService _apiService = ApiService();
   final Connectivity _connectivity = Connectivity();
 
@@ -27,7 +27,7 @@ class _PastQuestionsSelectionScreenState
   bool _isOffline = false;
   bool _hasOfflineCourses = false;
 
-  List<PastQuestionSession> _sessions = [];
+  List<TestQuestionSession> _sessions = [];
   List<Course> _courses = [];
   List<Map<String, dynamic>> _topics = [];
   List<Map<String, dynamic>> _offlineTopics = [];
@@ -65,68 +65,6 @@ class _PastQuestionsSelectionScreenState
     }
   }
 
-  // Future<void> _loadInitialData() async {
-  //   if (_isLoading) return;
-
-  //   setState(() {
-  //     _isLoading = true;
-  //     _isOffline = false;
-  //     _hasOfflineCourses = false;
-  //   });
-
-  //   try {
-  //     // Load all academic sessions first
-  //     final allSessions = await _apiService.getPastQuestionSessions();
-
-  //     // Load courses for the current user
-  //     final userCourses = await _apiService.getCoursesForUser();
-
-  //     // Check for offline courses
-  //     await _checkOfflineCourses();
-
-  //     setState(() {
-  //       _sessions = allSessions;
-  //       _courses = userCourses;
-
-  //       // Pre-select the first session if available
-  //       if (_sessions.isNotEmpty) {
-  //         _selectedSessionId = _sessions.first.id;
-  //       }
-
-  //       // Pre-select the first course if available
-  //       if (_courses.isNotEmpty) {
-  //         _selectedCourseId = _courses.first.id;
-  //         // Load topics for the first course
-  //         _loadTopicsForCourse(_courses.first.id);
-  //       }
-  //     });
-  //   } catch (e) {
-  //     print('❌ Error loading initial data: $e');
-
-  //     if (e.toString().contains('offline') ||
-  //         e.toString().contains('internet') ||
-  //         e.toString().contains('network')) {
-  //       // Try to load offline data as fallback
-  //       await _loadOfflineData();
-  //     } else {
-  //       if (mounted) {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(
-  //             content: Text('Error: ${e.toString()}'),
-  //             backgroundColor: Colors.red,
-  //           ),
-  //         );
-  //       }
-  //     }
-  //   } finally {
-  //     if (mounted) {
-  //       setState(() {
-  //         _isLoading = false;
-  //       });
-  //     }
-  //   }
-  // }
-
   // Replace the existing _loadInitialData method with this updated version
   Future<void> _loadInitialData() async {
     if (_isLoading) return;
@@ -148,7 +86,7 @@ class _PastQuestionsSelectionScreenState
 
         try {
           // Load all academic sessions first
-          final allSessions = await _apiService.getPastQuestionSessions();
+          final allSessions = await _apiService.getTestQuestionSessions();
           print('✅ Loaded ${allSessions.length} sessions from API');
 
           // Load courses for the current user
@@ -424,7 +362,7 @@ class _PastQuestionsSelectionScreenState
       if (cachedSessions != null && cachedSessions is List) {
         print('📂 Loading sessions from cache');
         final sessions = cachedSessions.map((sessionJson) {
-          return PastQuestionSession.fromJson(
+          return TestQuestionSession.fromJson(
             Map<String, dynamic>.from(sessionJson),
           );
         }).toList();
@@ -438,22 +376,22 @@ class _PastQuestionsSelectionScreenState
         return;
       }
 
-      // If no cache, extract sessions from past questions
-      final sessionSet = <String, PastQuestionSession>{};
+      // If no cache, extract sessions from test questions
+      final sessionSet = <String, TestQuestionSession>{};
 
       for (var courseId in downloadedCourseIds) {
         try {
           final courseData = offlineBox.get('course_$courseId');
           if (courseData == null) continue;
 
-          // Check for past questions
-          if (courseData['past_questions'] != null) {
-            final pastQuestions = courseData['past_questions'] as List;
+          // Check for test questions
+          if (courseData['test_questions'] != null) {
+            final testQuestions = courseData['test_questions'] as List;
             print(
-              '📝 Found ${pastQuestions.length} past questions in course $courseId',
+              '📝 Found ${testQuestions.length} test questions in course $courseId',
             );
 
-            for (var pq in pastQuestions) {
+            for (var pq in testQuestions) {
               if (pq is Map && pq['session'] != null) {
                 final sessionData = pq['session'];
                 if (sessionData is Map) {
@@ -463,7 +401,7 @@ class _PastQuestionsSelectionScreenState
                   if (sessionId != null &&
                       sessionName != null &&
                       !sessionSet.containsKey(sessionId)) {
-                    sessionSet[sessionId] = PastQuestionSession(
+                    sessionSet[sessionId] = TestQuestionSession(
                       id: sessionId,
                       name: sessionName,
                       isActive: true,
@@ -493,7 +431,7 @@ class _PastQuestionsSelectionScreenState
                   if (sessionId != null &&
                       sessionName != null &&
                       !sessionSet.containsKey(sessionId)) {
-                    sessionSet[sessionId] = PastQuestionSession(
+                    sessionSet[sessionId] = TestQuestionSession(
                       id: sessionId,
                       name: sessionName,
                       isActive: true,
@@ -518,7 +456,7 @@ class _PastQuestionsSelectionScreenState
       // Add "All Sessions" option
       sessionList.insert(
         0,
-        PastQuestionSession(id: '', name: 'All Sessions', isActive: true),
+        TestQuestionSession(id: '', name: 'All Sessions', isActive: true),
       );
 
       print(
@@ -543,7 +481,7 @@ class _PastQuestionsSelectionScreenState
       // Fallback: create default "All Sessions" option
       setState(() {
         _sessions = [
-          PastQuestionSession(id: '', name: 'All Sessions', isActive: true),
+          TestQuestionSession(id: '', name: 'All Sessions', isActive: true),
         ];
         _selectedSessionId = '';
       });
@@ -584,7 +522,7 @@ class _PastQuestionsSelectionScreenState
         print('📋 Loading topics for course ID: $courseId');
 
         // Load from API
-        _topics = await _apiService.getTopicsForPastQuestions(
+        _topics = await _apiService.getTopicsForTestQuestions(
           courseId: int.parse(courseId),
         );
 
@@ -648,7 +586,7 @@ class _PastQuestionsSelectionScreenState
       }
 
       final topicsList = <Map<String, dynamic>>[];
-      final sessionsSet = <String, PastQuestionSession>{};
+      final sessionsSet = <String, TestQuestionSession>{};
 
       // 1. First, extract topics from course topics
       if (courseData['topics'] != null) {
@@ -691,7 +629,7 @@ class _PastQuestionsSelectionScreenState
         print('📂 Loading sessions from cache');
         for (var sessionJson in cachedSessions) {
           try {
-            final session = PastQuestionSession.fromJson(
+            final session = TestQuestionSession.fromJson(
               Map<String, dynamic>.from(sessionJson),
             );
             sessionsSet[session.id] = session;
@@ -708,11 +646,11 @@ class _PastQuestionsSelectionScreenState
             );
             if (downloadedCourseData == null) continue;
 
-            // Check past questions
-            if (downloadedCourseData['past_questions'] != null) {
-              final pastQuestions =
-                  downloadedCourseData['past_questions'] as List;
-              for (var pq in pastQuestions) {
+            // Check test questions
+            if (downloadedCourseData['test_questions'] != null) {
+              final testQuestions =
+                  downloadedCourseData['test_questions'] as List;
+              for (var pq in testQuestions) {
                 if (pq is Map) {
                   // Try multiple session field names
                   final sessionData =
@@ -743,7 +681,7 @@ class _PastQuestionsSelectionScreenState
                       }
 
                       if (!sessionsSet.containsKey(sessionId)) {
-                        sessionsSet[sessionId] = PastQuestionSession(
+                        sessionsSet[sessionId] = TestQuestionSession(
                           id: sessionId,
                           name: sessionName,
                           isActive: true,
@@ -790,7 +728,7 @@ class _PastQuestionsSelectionScreenState
                       }
 
                       if (!sessionsSet.containsKey(sessionId)) {
-                        sessionsSet[sessionId] = PastQuestionSession(
+                        sessionsSet[sessionId] = TestQuestionSession(
                           id: sessionId,
                           name: sessionName,
                           isActive: true,
@@ -819,12 +757,12 @@ class _PastQuestionsSelectionScreenState
         }
       }
 
-      // 3. Extract topics from past questions in this specific course
-      if (courseData['past_questions'] != null) {
-        final pastQuestions = courseData['past_questions'] as List;
-        print('📝 Found ${pastQuestions.length} past questions in this course');
+      // 3. Extract topics from test questions in this specific course
+      if (courseData['test_questions'] != null) {
+        final testQuestions = courseData['test_questions'] as List;
+        print('📝 Found ${testQuestions.length} test questions in this course');
 
-        for (var pq in pastQuestions) {
+        for (var pq in testQuestions) {
           if (pq is Map) {
             // Extract topic information
             if (pq['topic'] != null) {
@@ -843,7 +781,7 @@ class _PastQuestionsSelectionScreenState
                           ? outline['title']?.toString()
                           : 'No Outline',
                     });
-                    print('   - Added topic from past question: $topicTitle');
+                    print('   - Added topic from test question: $topicTitle');
                   }
                 }
               }
@@ -894,7 +832,7 @@ class _PastQuestionsSelectionScreenState
       // Add "All Sessions" option at the beginning
       sessionList.insert(
         0,
-        PastQuestionSession(id: '', name: 'All Sessions', isActive: true),
+        TestQuestionSession(id: '', name: 'All Sessions', isActive: true),
       );
 
       setState(() {
@@ -925,7 +863,7 @@ class _PastQuestionsSelectionScreenState
         _offlineTopics = [];
         // Fallback sessions
         _sessions = [
-          PastQuestionSession(id: '', name: 'All Sessions', isActive: true),
+          TestQuestionSession(id: '', name: 'All Sessions', isActive: true),
         ];
         _selectedSessionId = '';
       });
@@ -945,17 +883,17 @@ class _PastQuestionsSelectionScreenState
 
       print('📦 Course data keys: ${courseData.keys.toList()}');
 
-      // Check past questions structure
-      if (courseData['past_questions'] != null) {
-        final pastQuestions = courseData['past_questions'] as List;
-        print('📝 Past questions count: ${pastQuestions.length}');
+      // Check test questions structure
+      if (courseData['test_questions'] != null) {
+        final testQuestions = courseData['test_questions'] as List;
+        print('📝 Test questions count: ${testQuestions.length}');
 
-        if (pastQuestions.isNotEmpty) {
-          final firstPq = pastQuestions[0];
-          print('🔍 First past question keys: ${firstPq.keys.toList()}');
-          print('🔍 First past question session: ${firstPq['session']}');
+        if (testQuestions.isNotEmpty) {
+          final firstPq = testQuestions[0];
+          print('🔍 First test question keys: ${firstPq.keys.toList()}');
+          print('🔍 First test question session: ${firstPq['session']}');
           print(
-            '🔍 First past question session type: ${firstPq['session']?.runtimeType}',
+            '🔍 First test question session type: ${firstPq['session']?.runtimeType}',
           );
 
           if (firstPq['session'] != null && firstPq['session'] is Map) {
@@ -1011,26 +949,26 @@ class _PastQuestionsSelectionScreenState
             print('   📚 Title: ${course['title']}');
           }
 
-          // Check past questions
-          if (courseData['past_questions'] != null) {
-            final pastQuestions = courseData['past_questions'] as List;
-            print('   📝 Past Questions: ${pastQuestions.length}');
+          // Check test questions
+          if (courseData['test_questions'] != null) {
+            final testQuestions = courseData['test_questions'] as List;
+            print('   📝 Test Questions: ${testQuestions.length}');
 
-            // Check sessions in past questions
-            final sessionsInPastQuestions = <String>{};
-            for (var pq in pastQuestions) {
+            // Check sessions in test questions
+            final sessionsInTestQuestions = <String>{};
+            for (var pq in testQuestions) {
               if (pq is Map && pq['session'] != null) {
                 final session = pq['session'];
                 if (session is Map) {
                   final sessionId = session['id']?.toString();
                   final sessionName = session['name']?.toString();
                   if (sessionName != null) {
-                    sessionsInPastQuestions.add('$sessionName ($sessionId)');
+                    sessionsInTestQuestions.add('$sessionName ($sessionId)');
                   }
                 }
               }
             }
-            print('   📅 Sessions in past questions: $sessionsInPastQuestions');
+            print('   📅 Sessions in test questions: $sessionsInTestQuestions');
           }
 
           // Check test questions
@@ -1086,13 +1024,13 @@ class _PastQuestionsSelectionScreenState
             print('   Title: ${course['title']}');
           }
 
-          if (courseData['past_questions'] != null) {
-            final pastQuestions = courseData['past_questions'] as List;
-            print('   Past Questions: ${pastQuestions.length}');
+          if (courseData['test_questions'] != null) {
+            final testQuestions = courseData['test_questions'] as List;
+            print('   Test Questions: ${testQuestions.length}');
 
-            // Check sessions in past questions
+            // Check sessions in test questions
             final sessions = <String>{};
-            for (var pq in pastQuestions) {
+            for (var pq in testQuestions) {
               if (pq is Map && pq['session'] != null) {
                 final session = pq['session'];
                 if (session is Map) {
@@ -1103,7 +1041,7 @@ class _PastQuestionsSelectionScreenState
                 }
               }
             }
-            print('   Sessions in past questions: $sessions');
+            print('   Sessions in test questions: $sessions');
           }
 
           if (courseData['topics'] != null) {
@@ -1144,7 +1082,7 @@ class _PastQuestionsSelectionScreenState
         if (_selectedSessionId != '') {
           final session = _sessions.firstWhere(
             (session) => session.id == _selectedSessionId,
-            orElse: () => PastQuestionSession(
+            orElse: () => TestQuestionSession(
               id: '',
               name: 'All Sessions',
               isActive: false,
@@ -1185,10 +1123,10 @@ class _PastQuestionsSelectionScreenState
 
       print('📌 Session to send: $sessionIdToSend ($sessionName)');
 
-      // Navigate to past questions screen
+      // Navigate to test questions screen
       Navigator.pushNamed(
         context,
-        '/past-questions-screen',
+        '/test-questions-screen',
         arguments: {
           'courseId': _selectedCourseId!,
           'courseName': '${selectedCourse.code} - ${selectedCourse.title}',
@@ -1861,7 +1799,7 @@ class _PastQuestionsSelectionScreenState
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text(
-          'Past Questions',
+          'test Questions',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
@@ -1877,7 +1815,7 @@ class _PastQuestionsSelectionScreenState
                 children: [
                   // Header
                   const Text(
-                    'Practice Past Questions',
+                    'Practice test Questions',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,

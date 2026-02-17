@@ -85,7 +85,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
       await _loadSemesters();
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load data: $e';
+        _errorMessage = 'Failed to load data, check your network and try again';
       });
     } finally {
       setState(() {
@@ -96,7 +96,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
 
   Future<void> _refreshData() async {
     if (_isRefreshing) return;
-    
+
     setState(() {
       _isRefreshing = true;
       _errorMessage = null;
@@ -126,7 +126,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to refresh: $e';
+        _errorMessage = 'Failed to refresh, check your network and try again';
       });
     } finally {
       setState(() {
@@ -230,9 +230,8 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
         levelId: _userData.level?.id,
         semesterId: _userData.semester?.id,
       );
-      
+
       print('Onboarding completed successfully!'); // Debug
-    
 
       // Update local user data
       final box = await Hive.openBox('user_box');
@@ -243,19 +242,18 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
       }
 
       if (!mounted) return;
-      
+
       Navigator.pushReplacementNamed(context, '/home');
 
       // Navigate to Terms & Conditions instead of home
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => TermsAndConditionsScreen(userData: _userData),
-      ),
-    );
-      
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TermsAndConditionsScreen(userData: _userData),
+        ),
+      );
     } catch (e) {
-      _showError('Failed to complete onboarding: $e');
+      _showError('Failed to complete onboarding');
       print('Onboarding error details: $e'); // Add this for debugging
     } finally {
       if (mounted) {
@@ -278,7 +276,11 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
   }
 
   // FIXED: University card with proper image URL handling
-  Widget _buildUniversityCard(University university, bool isSelected, VoidCallback onTap) {
+  Widget _buildUniversityCard(
+    University university,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     // Build full image URL from backend path
     String? fullImageUrl = university.imagePath;
     if (fullImageUrl != null && !fullImageUrl.startsWith('http')) {
@@ -300,7 +302,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade300,
+                  color: isSelected
+                      ? const Color(0xFF6366F1)
+                      : Colors.grey.shade300,
                   width: isSelected ? 2 : 1,
                 ),
                 boxShadow: [
@@ -321,10 +325,16 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         fit: BoxFit.cover,
                         loadingBuilder: (context, child, loadingProgress) {
                           if (loadingProgress == null) return child;
-                          return _buildUniversityFallback(university, isSelected);
+                          return _buildUniversityFallback(
+                            university,
+                            isSelected,
+                          );
                         },
                         errorBuilder: (context, error, stackTrace) {
-                          return _buildUniversityFallback(university, isSelected);
+                          return _buildUniversityFallback(
+                            university,
+                            isSelected,
+                          );
                         },
                       )
                     : _buildUniversityFallback(university, isSelected),
@@ -336,7 +346,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade700,
+                color: isSelected
+                    ? const Color(0xFF6366F1)
+                    : Colors.grey.shade700,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -364,13 +376,19 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
     );
   }
 
-  Widget _buildFacultyCard(Faculty faculty, bool isSelected, VoidCallback onTap) {
+  Widget _buildFacultyCard(
+    Faculty faculty,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
         elevation: isSelected ? 1 : 0,
         borderRadius: BorderRadius.circular(12),
-        color: isSelected ? const Color(0xFF6366F1).withOpacity(0.05) : Colors.white,
+        color: isSelected
+            ? const Color(0xFF6366F1).withOpacity(0.05)
+            : Colors.white,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
@@ -380,7 +398,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade200,
+                color: isSelected
+                    ? const Color(0xFF6366F1)
+                    : Colors.grey.shade200,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -390,16 +410,21 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade100,
+                    color: isSelected
+                        ? const Color(0xFF6366F1)
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Center(
                     child: Text(
-                      faculty.abbreviation?.substring(0, 2) ?? faculty.name.substring(0, 2),
+                      faculty.abbreviation?.substring(0, 2) ??
+                          faculty.name.substring(0, 2),
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: isSelected ? Colors.white : const Color(0xFF6366F1),
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFF6366F1),
                       ),
                     ),
                   ),
@@ -414,7 +439,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF1F2937),
+                          color: isSelected
+                              ? const Color(0xFF6366F1)
+                              : const Color(0xFF1F2937),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -422,7 +449,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         faculty.name,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isSelected ? const Color(0xFF6366F1).withOpacity(0.8) : Colors.grey.shade600,
+                          color: isSelected
+                              ? const Color(0xFF6366F1).withOpacity(0.8)
+                              : Colors.grey.shade600,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -444,13 +473,19 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
     );
   }
 
-  Widget _buildDepartmentCard(Department department, bool isSelected, VoidCallback onTap) {
+  Widget _buildDepartmentCard(
+    Department department,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
         elevation: isSelected ? 1 : 0,
         borderRadius: BorderRadius.circular(12),
-        color: isSelected ? const Color(0xFF6366F1).withOpacity(0.05) : Colors.white,
+        color: isSelected
+            ? const Color(0xFF6366F1).withOpacity(0.05)
+            : Colors.white,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
@@ -460,7 +495,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade200,
+                color: isSelected
+                    ? const Color(0xFF6366F1)
+                    : Colors.grey.shade200,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -470,16 +507,21 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF6366F1) : Colors.grey.shade100,
+                    color: isSelected
+                        ? const Color(0xFF6366F1)
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Center(
                     child: Text(
-                      department.abbreviation?.substring(0, 2) ?? department.name.substring(0, 2),
+                      department.abbreviation?.substring(0, 2) ??
+                          department.name.substring(0, 2),
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: isSelected ? Colors.white : const Color(0xFF6366F1),
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFF6366F1),
                       ),
                     ),
                   ),
@@ -494,7 +536,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF1F2937),
+                          color: isSelected
+                              ? const Color(0xFF6366F1)
+                              : const Color(0xFF1F2937),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -502,7 +546,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         department.name,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isSelected ? const Color(0xFF6366F1).withOpacity(0.8) : Colors.grey.shade600,
+                          color: isSelected
+                              ? const Color(0xFF6366F1).withOpacity(0.8)
+                              : Colors.grey.shade600,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -532,24 +578,18 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
         margin: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: isSelected 
+          gradient: isSelected
               ? const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF6366F1),
-                    Color(0xFF8B5CF6),
-                  ],
+                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                 )
               : LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Colors.grey.shade50,
-                    Colors.grey.shade100,
-                  ],
+                  colors: [Colors.grey.shade50, Colors.grey.shade100],
                 ),
-          boxShadow: isSelected 
+          boxShadow: isSelected
               ? [
                   BoxShadow(
                     color: const Color(0xFF6366F1).withOpacity(0.3),
@@ -588,7 +628,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: isSelected ? Colors.white : const Color(0xFF1F2937),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF1F2937),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -596,7 +638,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                     'Year ${level.value ~/ 100}',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isSelected ? Colors.white.withOpacity(0.8) : Colors.grey.shade600,
+                      color: isSelected
+                          ? Colors.white.withOpacity(0.8)
+                          : Colors.grey.shade600,
                     ),
                   ),
                 ],
@@ -622,7 +666,11 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
     );
   }
 
-  Widget _buildSemesterCard(Semester semester, bool isSelected, VoidCallback onTap) {
+  Widget _buildSemesterCard(
+    Semester semester,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -630,24 +678,18 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
         margin: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: isSelected 
+          gradient: isSelected
               ? const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF6366F1),
-                    Color(0xFF8B5CF6),
-                  ],
+                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                 )
               : LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    Colors.grey.shade50,
-                  ],
+                  colors: [Colors.white, Colors.grey.shade50],
                 ),
-          boxShadow: isSelected 
+          boxShadow: isSelected
               ? [
                   BoxShadow(
                     color: const Color(0xFF6366F1).withOpacity(0.3),
@@ -683,7 +725,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
-                      color: isSelected ? Colors.white : const Color(0xFF1F2937),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF1F2937),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -691,7 +735,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                     'Semester ${semester.value}',
                     style: TextStyle(
                       fontSize: 14,
-                      color: isSelected ? Colors.white.withOpacity(0.9) : Colors.grey.shade600,
+                      color: isSelected
+                          ? Colors.white.withOpacity(0.9)
+                          : Colors.grey.shade600,
                     ),
                   ),
                 ],
@@ -717,7 +763,11 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
     );
   }
 
-  Widget _buildSearchField(String type, String hintText, ValueChanged<String> onChanged) {
+  Widget _buildSearchField(
+    String type,
+    String hintText,
+    ValueChanged<String> onChanged,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       child: TextField(
@@ -726,10 +776,18 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-          prefixIcon: Icon(Icons.search_rounded, color: Colors.grey.shade500, size: 20),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: Colors.grey.shade500,
+            size: 20,
+          ),
           suffixIcon: _searchControllers[type]!.text.isNotEmpty
               ? IconButton(
-                  icon: Icon(Icons.clear_rounded, color: Colors.grey.shade500, size: 20),
+                  icon: Icon(
+                    Icons.clear_rounded,
+                    color: Colors.grey.shade500,
+                    size: 20,
+                  ),
                   onPressed: () {
                     _searchControllers[type]!.clear();
                     onChanged('');
@@ -747,7 +805,10 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
         ),
         style: const TextStyle(fontSize: 14),
       ),
@@ -772,10 +833,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           const SizedBox(height: 8),
           Text(
             message,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade400,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
@@ -817,7 +875,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           _faculties = [];
           _departments = [];
         });
-        
+
         if (university.id.isNotEmpty) {
           await _loadFaculties(university.id);
         }
@@ -854,7 +912,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           _userData = _userData.copyWith(department: null);
           _departments = [];
         });
-        
+
         if (faculty.id.isNotEmpty) {
           await _loadDepartments(faculty.id);
         }
@@ -954,10 +1012,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           const SizedBox(height: 16),
           Text(
             message,
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
           ),
         ],
       ),
@@ -982,14 +1037,19 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           children: [
             if (title != 'Select Your Level')
               _buildSearchField(
-                title.toLowerCase().contains('university') ? 'university' : 
-                title.toLowerCase().contains('faculty') ? 'faculty' : 'department',
+                title.toLowerCase().contains('university')
+                    ? 'university'
+                    : title.toLowerCase().contains('faculty')
+                    ? 'faculty'
+                    : 'department',
                 'Search ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')}...',
                 (query) {
                   setState(() {
                     filteredItems = items.where((item) {
                       final displayText = _getItemDisplayText(item);
-                      return displayText.toLowerCase().contains(query.toLowerCase());
+                      return displayText.toLowerCase().contains(
+                        query.toLowerCase(),
+                      );
                     }).toList();
                   });
                 },
@@ -999,7 +1059,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                 onRefresh: _refreshData,
                 color: const Color(0xFF6366F1),
                 child: filteredItems.isEmpty
-                    ? _buildEmptyState('No ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')} found')
+                    ? _buildEmptyState(
+                        'No ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')} found',
+                      )
                     : GridView.builder(
                         padding: const EdgeInsets.only(bottom: 8),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1012,7 +1074,11 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                         itemBuilder: (context, index) {
                           final item = filteredItems[index];
                           final isSelected = selectedItem == item;
-                          return buildItem(item, isSelected, () => onItemSelected(item));
+                          return buildItem(
+                            item,
+                            isSelected,
+                            () => onItemSelected(item),
+                          );
                         },
                       ),
               ),
@@ -1039,13 +1105,17 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildSearchField(
-              title.toLowerCase().contains('faculty') ? 'faculty' : 'department',
+              title.toLowerCase().contains('faculty')
+                  ? 'faculty'
+                  : 'department',
               'Search ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')}...',
               (query) {
                 setState(() {
                   filteredItems = items.where((item) {
                     final displayText = _getItemDisplayText(item);
-                    return displayText.toLowerCase().contains(query.toLowerCase());
+                    return displayText.toLowerCase().contains(
+                      query.toLowerCase(),
+                    );
                   }).toList();
                 });
               },
@@ -1055,14 +1125,20 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                 onRefresh: _refreshData,
                 color: const Color(0xFF6366F1),
                 child: filteredItems.isEmpty
-                    ? _buildEmptyState('No ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')} found')
+                    ? _buildEmptyState(
+                        'No ${title.toLowerCase().replaceFirst('select ', '').replaceFirst('choose ', '').replaceFirst('pick ', '')} found',
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.only(bottom: 8),
                         itemCount: filteredItems.length,
                         itemBuilder: (context, index) {
                           final item = filteredItems[index];
                           final isSelected = selectedItem == item;
-                          return buildItem(item, isSelected, () => onItemSelected(item));
+                          return buildItem(
+                            item,
+                            isSelected,
+                            () => onItemSelected(item),
+                          );
                         },
                       ),
               ),
@@ -1114,10 +1190,7 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
               const SizedBox(height: 16),
               Text(
                 _loadingMessage,
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 16,
-                ),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
               ),
             ],
           ),
@@ -1143,7 +1216,8 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
               color: Colors.grey.shade700,
             ),
           ),
-          onPressed: () => _currentPage > 0 ? _previousPage() : Navigator.pop(context),
+          onPressed: () =>
+              _currentPage > 0 ? _previousPage() : Navigator.pop(context),
         ),
         title: Text(
           'Step ${_currentPage + 1} of ${_onboardingSteps.length}',
@@ -1203,7 +1277,9 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   onPageChanged: (page) {
                     setState(() => _currentPage = page);
-                    _searchControllers.forEach((key, controller) => controller.clear());
+                    _searchControllers.forEach(
+                      (key, controller) => controller.clear(),
+                    );
                     _errorMessage = null;
                   },
                   children: [
@@ -1259,11 +1335,15 @@ class _AcademicSetupScreenState extends State<AcademicSetupScreen> {
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
                               ),
                             )
                           : Text(
-                              _currentPage == _onboardingSteps.length - 1 ? 'Continue' : 'Next',
+                              _currentPage == _onboardingSteps.length - 1
+                                  ? 'Continue'
+                                  : 'Next',
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,

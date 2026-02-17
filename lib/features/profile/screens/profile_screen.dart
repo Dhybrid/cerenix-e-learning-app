@@ -72,11 +72,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       print('✅ Logout completed successfully');
 
       // Navigate to signin page and remove all routes
-      Navigator.pushNamedAndRemoveUntil(
-        context, 
-        '/signin', 
-        (route) => false
-      );
+      Navigator.pushNamedAndRemoveUntil(context, '/signin', (route) => false);
 
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -85,19 +81,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           backgroundColor: Colors.green,
         ),
       );
-
     } catch (e) {
       print('❌ Logout error: $e');
       // Fallback - clear storage and navigate anyway
       final box = await Hive.openBox('user_box');
       await box.clear();
-      
-      Navigator.pushNamedAndRemoveUntil(
-        context, 
-        '/signin', 
-        (route) => false
-      );
-      
+
+      Navigator.pushNamedAndRemoveUntil(context, '/signin', (route) => false);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Logged out from app'),
@@ -205,7 +196,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
-          
+
           // Profile options section
           Expanded(
             child: Container(
@@ -216,7 +207,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   children: [
                     const SizedBox(height: 10),
-                    
+
                     // Profile Options Card
                     Container(
                       width: double.infinity,
@@ -248,14 +239,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: Colors.green,
                             onTap: () => _navigateTo('/general-info'),
                           ),
-                          _buildDivider(),
-                          _buildProfileOption(
-                            icon: Icons.bookmark_outline_rounded,
-                            title: 'Bookmarked Questions',
-                            subtitle: 'Your saved learning materials',
-                            color: Colors.purple,
-                            onTap: () => _navigateTo('/bookmarks'),
-                          ),
+                          // _buildDivider(),
+                          // _buildProfileOption(
+                          //   icon: Icons.bookmark_outline_rounded,
+                          //   title: 'Bookmarked Questions',
+                          //   subtitle: 'Your saved learning materials',
+                          //   color: Colors.purple,
+                          //   onTap: () => _navigateTo('/bookmarks'),
+                          // ),
                           _buildDivider(),
                           _buildProfileOption(
                             icon: Icons.rocket_launch_outlined,
@@ -264,14 +255,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: Colors.red,
                             onTap: () => _navigateTo('/activate'),
                           ),
-                          _buildDivider(),
-                          _buildProfileOption(
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: 'Hidden Functions',
-                            subtitle: 'Advanced settings and tools',
-                            color: Colors.teal,
-                            onTap: () => _navigateTo('/hidden-functions'),
-                          ),
+                          // _buildDivider(),
+                          // _buildProfileOption(
+                          //   icon: Icons.admin_panel_settings_outlined,
+                          //   title: 'Hidden Functions',
+                          //   subtitle: 'Advanced settings and tools',
+                          //   color: Colors.teal,
+                          //   onTap: () => _navigateTo('/hidden-functions'),
+                          // ),
                           _buildDivider(),
                           _buildProfileOption(
                             icon: Icons.trending_up_outlined,
@@ -291,19 +282,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
-                    
+
                     const SizedBox(height: 30),
-                    
+
                     // Logout button
                     Container(
                       width: double.infinity,
                       height: 60,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [
-                            Colors.red.shade400,
-                            Colors.red.shade600,
-                          ],
+                          colors: [Colors.red.shade400, Colors.red.shade600],
                         ),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
@@ -342,7 +330,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -378,14 +366,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: color.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(15),
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 24,
-                ),
+                child: Icon(icon, color: color, size: 24),
               ),
               const SizedBox(width: 16),
-              
+
               // Text content
               Expanded(
                 child: Column(
@@ -411,7 +395,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
-              
+
               // 45-degree arrow
               Transform.rotate(
                 angle: -45 * 3.14159 / 180,
@@ -431,10 +415,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildDivider() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Divider(
-        height: 1,
-        color: Colors.grey.shade200,
-      ),
+      child: Divider(height: 1, color: Colors.grey.shade200),
     );
   }
 }

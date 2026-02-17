@@ -27,7 +27,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
   bool _hasUniversityData = false; // NEW: Track university data state
   UserActivation? _currentActivation;
   Map<String, dynamic> _userData = {};
-  
+
   // Add a listener for Hive changes
   // late StreamSubscription<BoxEvent> _hiveSubscription;
   StreamSubscription<BoxEvent>? _hiveSubscription;
@@ -37,10 +37,10 @@ class _ActivationScreenState extends State<ActivationScreen> {
     super.initState();
     _checkInternetConnection();
     _loadUserData();
-    
+
     // Listen to Hive changes for automatic updates
     // _setupHiveListener();
-    
+
     Connectivity().onConnectivityChanged.listen((result) {
       if (mounted) {
         setState(() {
@@ -130,7 +130,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
   //     }
 
   //     print('🔄 Loading activation data...');
-      
+
   //     // Get fresh user data from API first
   //     final userData = await ApiService().getCurrentUser();
   //     if (userData == null) {
@@ -149,13 +149,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
   //     // Store user data for reference
   //     _userData = userData;
   //     print('📱 User data loaded: ${userData['email']}');
-      
+
   //     // Extract university ID with the fresh user data
   //     String? universityId = _extractUniversityId(userData);
-      
+
   //     // UPDATE: Set the university data flag
   //     _hasUniversityData = universityId != null && universityId.isNotEmpty;
-      
+
   //     if (_hasUniversityData) {
   //       print('🎓 Loading billing plans for university: $universityId');
   //       try {
@@ -169,7 +169,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
   //       print('⚠️ No university ID available, showing empty plans');
   //       _plans = [];
   //     }
-      
+
   //     // Load activation status
   //     await _loadActivationStatus();
 
@@ -192,29 +192,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
   // }
 
   // UPDATED: Improved data loading with FRESH API data
-// FIXED: Simple data loading without infinite loops
-Future<void> _loadData() async {
-  if (!_hasInternet) {
-    setState(() {
-      _isLoading = false;
-      _plans = [];
-      _currentActivation = null;
-      _hasUniversityData = false;
-    });
-    return;
-  }
-
-  try {
-    setState(() {
-      _isLoading = true;
-    });
-
-    print('🔄 Loading activation data...');
-    
-    // FIX: Get user data AND force update to get complete university data
-    final userData = await ApiService().getCurrentUser();
-    if (userData == null) {
-      print('❌ No user data available');
+  // FIXED: Simple data loading without infinite loops
+  Future<void> _loadData() async {
+    if (!_hasInternet) {
       setState(() {
         _isLoading = false;
         _plans = [];
@@ -224,119 +204,145 @@ Future<void> _loadData() async {
       return;
     }
 
-    // FIX: If user has onboarding completed but no university data in Hive,
-    // force update profile to get complete data from backend
-    if (userData['onboarding_completed'] == true && 
-        (userData['university'] == null || userData['university_id'] == null)) {
-      print('🔄 User completed onboarding but missing university data, forcing profile update...');
-      
-      try {
-        await ApiService().updateProfile(
-          userId: userData['id'],
-          email: userData['email'],
-          name: userData['name'] ?? '',
-          bio: userData['bio'] ?? '',
-          phone: userData['phone'] ?? '',
-          location: userData['location'] ?? '',
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      print('🔄 Loading activation data...');
+
+      // FIX: Get user data AND force update to get complete university data
+      final userData = await ApiService().getCurrentUser();
+      if (userData == null) {
+        print('❌ No user data available');
+        setState(() {
+          _isLoading = false;
+          _plans = [];
+          _currentActivation = null;
+          _hasUniversityData = false;
+        });
+        return;
+      }
+
+      // FIX: If user has onboarding completed but no university data in Hive,
+      // force update profile to get complete data from backend
+      if (userData['onboarding_completed'] == true &&
+          (userData['university'] == null ||
+              userData['university_id'] == null)) {
+        print(
+          '🔄 User completed onboarding but missing university data, forcing profile update...',
         );
-        
-        // Get the updated user data
-        final updatedUserData = await ApiService().getCurrentUser();
-        if (updatedUserData != null) {
-          _userData = updatedUserData;
-          print('✅ Got updated user data with university info');
-        } else {
+
+        try {
+          await ApiService().updateProfile(
+            userId: userData['id'],
+            email: userData['email'],
+            name: userData['name'] ?? '',
+            bio: userData['bio'] ?? '',
+            phone: userData['phone'] ?? '',
+            location: userData['location'] ?? '',
+          );
+
+          // Get the updated user data
+          final updatedUserData = await ApiService().getCurrentUser();
+          if (updatedUserData != null) {
+            _userData = updatedUserData;
+            print('✅ Got updated user data with university info');
+          } else {
+            _userData = userData;
+          }
+        } catch (e) {
+          print('⚠️ Profile update failed, using existing data: $e');
           _userData = userData;
         }
-      } catch (e) {
-        print('⚠️ Profile update failed, using existing data: $e');
+      } else {
         _userData = userData;
       }
-    } else {
-      _userData = userData;
-    }
 
-    print('📱 User data: ${_userData['email']}');
-    
-    // Extract university ID
-    String? universityId = _extractUniversityId(_userData);
-    
-    _hasUniversityData = universityId != null && universityId.isNotEmpty;
-    
-    if (_hasUniversityData) {
-      print('🎓 Loading billing plans for university: $universityId');
-      try {
-        _plans = await ApiService().getBillingPlans(universityId!);
-        print('📦 Loaded ${_plans.length} billing plans');
-      } catch (e) {
-        print('❌ Error loading billing plans: $e');
+      print('📱 User data: ${_userData['email']}');
+
+      // Extract university ID
+      String? universityId = _extractUniversityId(_userData);
+
+      _hasUniversityData = universityId != null && universityId.isNotEmpty;
+
+      if (_hasUniversityData) {
+        print('🎓 Loading billing plans for university: $universityId');
+        try {
+          _plans = await ApiService().getBillingPlans(universityId!);
+          print('📦 Loaded ${_plans.length} billing plans');
+        } catch (e) {
+          print('❌ Error loading billing plans: $e');
+          _plans = [];
+        }
+      } else {
+        print('⚠️ No university ID available');
+        print(
+          '🔍 User onboarding status: ${_userData['onboarding_completed']}',
+        );
+        print('🔍 University data: ${_userData['university']}');
+        print('🔍 University ID: ${_userData['university_id']}');
         _plans = [];
       }
-    } else {
-      print('⚠️ No university ID available');
-      print('🔍 User onboarding status: ${_userData['onboarding_completed']}');
-      print('🔍 University data: ${_userData['university']}');
-      print('🔍 University ID: ${_userData['university_id']}');
-      _plans = [];
-    }
-    
-    // Load activation status
-    await _loadActivationStatus();
 
-    setState(() {
-      _isLoading = false;
-    });
-  } catch (e) {
-    print('❌ Error loading data: $e');
-    setState(() {
-      _isLoading = false;
-      _plans = [];
-      _currentActivation = null;
-      _hasUniversityData = false;
-    });
+      // Load activation status
+      await _loadActivationStatus();
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error loading data: $e');
+      setState(() {
+        _isLoading = false;
+        _plans = [];
+        _currentActivation = null;
+        _hasUniversityData = false;
+      });
+    }
   }
-}
-// NEW: Method to force fresh user data from backend
-Future<Map<String, dynamic>?> _getFreshUserData() async {
-  try {
-    print('🔄 Getting FRESH user data from backend...');
-    
-    // Get current user to extract user ID
-    final currentUser = await ApiService().getCurrentUser();
-    if (currentUser == null) {
-      print('❌ No current user found');
-      return null;
+
+  // NEW: Method to force fresh user data from backend
+  Future<Map<String, dynamic>?> _getFreshUserData() async {
+    try {
+      print('🔄 Getting FRESH user data from backend...');
+
+      // Get current user to extract user ID
+      final currentUser = await ApiService().getCurrentUser();
+      if (currentUser == null) {
+        print('❌ No current user found');
+        return null;
+      }
+
+      final userId = currentUser['id'];
+      final email = currentUser['email'];
+
+      if (userId == null || email == null) {
+        print('❌ Missing user ID or email');
+        return null;
+      }
+
+      // Force update profile to get fresh data from backend
+      await ApiService().updateProfile(
+        userId: userId,
+        email: email,
+        name: currentUser['name'] ?? '',
+        bio: currentUser['bio'] ?? '',
+        phone: currentUser['phone'] ?? '',
+        location: currentUser['location'] ?? '',
+      );
+
+      // Now get the fresh updated data
+      final freshUserData = await ApiService().getCurrentUser();
+      print('✅ Got fresh user data from backend');
+
+      return freshUserData;
+    } catch (e) {
+      print('❌ Error getting fresh user data: $e');
+      // Fallback to current Hive data
+      return await ApiService().getCurrentUser();
     }
-
-    final userId = currentUser['id'];
-    final email = currentUser['email'];
-    
-    if (userId == null || email == null) {
-      print('❌ Missing user ID or email');
-      return null;
-    }
-
-    // Force update profile to get fresh data from backend
-    await ApiService().updateProfile(
-      userId: userId,
-      email: email,
-      name: currentUser['name'] ?? '',
-      bio: currentUser['bio'] ?? '',
-      phone: currentUser['phone'] ?? '',
-      location: currentUser['location'] ?? '',
-    );
-
-    // Now get the fresh updated data
-    final freshUserData = await ApiService().getCurrentUser();
-    print('✅ Got fresh user data from backend');
-    
-    return freshUserData;
-  } catch (e) {
-    print('❌ Error getting fresh user data: $e');
-    // Fallback to current Hive data
-    return await ApiService().getCurrentUser();
   }
-}
 
   // UPDATED: Extract university ID from user data parameter
   String? _extractUniversityId(Map<String, dynamic> userData) {
@@ -344,31 +350,34 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
       // Check if we have onboarding data with university_id
       if (userData['onboarding_completed'] == true) {
         print('✅ User has completed onboarding');
-        
+
         // Check multiple possible locations for university data
-        if (userData['university'] is Map && userData['university']?['id'] != null) {
+        if (userData['university'] is Map &&
+            userData['university']?['id'] != null) {
           final id = userData['university']?['id']?.toString();
           print('🎓 Found university ID in university field: $id');
           return id;
         }
-        
+
         if (userData['university_id'] != null) {
           final id = userData['university_id']?.toString();
           print('🎓 Found university ID in university_id field: $id');
           return id;
         }
-        
+
         // Check if we have academic data from onboarding
         if (userData['level'] != null || userData['department'] != null) {
-          print('📚 User has academic data but no university ID found in standard fields');
-          
+          print(
+            '📚 User has academic data but no university ID found in standard fields',
+          );
+
           // Try to get university ID from the onboarding API
           return _getUniversityIdFromOnboardingData(userData);
         }
       } else {
         print('❌ User has not completed onboarding');
       }
-      
+
       return null;
     } catch (e) {
       print('❌ Error extracting university ID: $e');
@@ -384,7 +393,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
         return onboardingData['university_id']?.toString();
       }
     }
-    
+
     // If we have academic fields but no university ID, trigger refresh
     print('🔄 No university ID found, user may need to refresh profile');
     return null;
@@ -394,11 +403,13 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
   Future<void> _loadActivationStatus() async {
     try {
       print('📊 Getting activation status...');
-      
+
       _currentActivation = await ApiService().getActivationStatus();
-      
+
       if (_currentActivation != null) {
-        print('✅ Loaded activation status: ${_currentActivation!.grade} - Valid: ${_currentActivation!.isValid}');
+        print(
+          '✅ Loaded activation status: ${_currentActivation!.grade} - Valid: ${_currentActivation!.isValid}',
+        );
       } else {
         print('ℹ️ No active activation found');
       }
@@ -412,7 +423,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (!_hasInternet) {
-      _showErrorDialog('No internet connection. Please check your connection and try again.');
+      _showErrorDialog(
+        'No internet connection. Please check your connection and try again.',
+      );
       return;
     }
 
@@ -420,7 +433,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
     if (!_hasUniversityData) {
       _showErrorDialog(
         'University information required. '
-        'Please complete your academic profile setup before activating your account.'
+        'Please complete your academic profile setup before activating your account.',
       );
       return;
     }
@@ -433,14 +446,18 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
       print('🔑 Starting PIN activation...');
       final response = await ApiService().activateWithPin(
         activationCode: _activationController.text.trim(),
-        referralCode: _referralController.text.trim().isNotEmpty ? _referralController.text.trim() : null,
+        referralCode: _referralController.text.trim().isNotEmpty
+            ? _referralController.text.trim()
+            : null,
       );
 
       if (response.success) {
         print('✅ PIN activation successful');
         _showSuccessDialog(
           response.message,
-          response.referralApplied ? '🎉 +10 NTY referral credit applied!' : null,
+          response.referralApplied
+              ? '🎉 +10 NTY referral credit applied!'
+              : null,
         );
         _activationController.clear();
         _referralController.clear();
@@ -448,7 +465,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
       }
     } catch (e) {
       print('❌ PIN activation error: $e');
-      _showErrorDialog('Activation failed: $e');
+      _showErrorDialog(
+        'Activation failed, check your connection and try again',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -540,7 +559,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
   //                   return;
   //                 }
   //               }
-                
+
   //               referralController.dispose();
   //               Navigator.pop(context);
   //               _initiatePayment(plan, referralCode.isNotEmpty ? referralCode : null);
@@ -554,104 +573,117 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
   // }
 
   void _selectPlan(BillingPlan plan) {
-  if (!plan.isClickable) {
-    _showErrorDialog('This plan is not currently available for activation.');
-    return;
-  }
+    if (!plan.isClickable) {
+      _showErrorDialog('This plan is not currently available for activation.');
+      return;
+    }
 
-  if (!_hasInternet) {
-    _showErrorDialog('No internet connection. Please check your connection and try again.');
-    return;
-  }
-
-  // Check if user has university data
-  if (!_hasUniversityData) {
-    _showErrorDialog(
-      'University information required. '
-      'Please complete your academic profile setup before purchasing a plan.'
-    );
-    return;
-  }
-
-  final referralController = TextEditingController();
-
-  showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: const Text('Confirm Plan Selection'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Plan: ${plan.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text('Price: ₦${plan.price.toStringAsFixed(2)}'),
-              Text('Duration: ${plan.durationDisplay}'),
-              Text('Grade: ${plan.grade.toUpperCase()}'),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: referralController,
-                decoration: const InputDecoration(
-                  labelText: 'Referral Code (Optional)',
-                  border: OutlineInputBorder(),
-                  hintText: 'Enter referral code for +10 NTY',
-                ),
-                textCapitalization: TextCapitalization.characters,
-                validator: (value) {
-                  if (value != null && value.isNotEmpty) {
-                    if (value.length != 8) {
-                      return 'Referral code must be 8 characters';
-                    }
-                    if (!RegExp(r'^[A-Z0-9]+$').hasMatch(value)) {
-                      return 'Referral code must contain only uppercase letters and numbers';
-                    }
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'If you use a referral code, the referrer will get 10 NTY credit!',
-                style: TextStyle(color: Colors.grey[600], fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // REMOVED: referralController.dispose();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final referralCode = referralController.text.trim().toUpperCase();
-              if (referralCode.isNotEmpty) {
-                if (referralCode.length != 8 || !RegExp(r'^[A-Z0-9]+$').hasMatch(referralCode)) {
-                  _showErrorDialog('Invalid referral code format. Must be 8 uppercase letters/numbers.');
-                  return;
-                }
-              }
-              
-              Navigator.pop(context);
-              _initiatePayment(plan, referralCode.isNotEmpty ? referralCode : null);
-              // REMOVED: referralController.dispose();
-            },
-            child: const Text('Proceed to Payment'),
-          ),
-        ],
+    if (!_hasInternet) {
+      _showErrorDialog(
+        'No internet connection. Please check your connection and try again.',
       );
-    },
-  );
-}
+      return;
+    }
+
+    // Check if user has university data
+    if (!_hasUniversityData) {
+      _showErrorDialog(
+        'University information required. '
+        'Please complete your academic profile setup before purchasing a plan.',
+      );
+      return;
+    }
+
+    final referralController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Confirm Plan Selection'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Plan: ${plan.name}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text('Price: ₦${plan.price.toStringAsFixed(2)}'),
+                Text('Duration: ${plan.durationDisplay}'),
+                Text('Grade: ${plan.grade.toUpperCase()}'),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: referralController,
+                  decoration: const InputDecoration(
+                    labelText: 'Referral Code (Optional)',
+                    border: OutlineInputBorder(),
+                    hintText: 'Enter referral code for +10 NTY',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                  validator: (value) {
+                    if (value != null && value.isNotEmpty) {
+                      if (value.length != 8) {
+                        return 'Referral code must be 8 characters';
+                      }
+                      if (!RegExp(r'^[A-Z0-9]+$').hasMatch(value)) {
+                        return 'Referral code must contain only uppercase letters and numbers';
+                      }
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'If you use a referral code, the referrer will get 10 NTY credit!',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                // REMOVED: referralController.dispose();
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final referralCode = referralController.text
+                    .trim()
+                    .toUpperCase();
+                if (referralCode.isNotEmpty) {
+                  if (referralCode.length != 8 ||
+                      !RegExp(r'^[A-Z0-9]+$').hasMatch(referralCode)) {
+                    _showErrorDialog(
+                      'Invalid referral code format. Must be 8 uppercase letters/numbers.',
+                    );
+                    return;
+                  }
+                }
+
+                Navigator.pop(context);
+                _initiatePayment(
+                  plan,
+                  referralCode.isNotEmpty ? referralCode : null,
+                );
+                // REMOVED: referralController.dispose();
+              },
+              child: const Text('Proceed to Payment'),
+            ),
+          ],
+        );
+      },
+    );
+  }
   // ////
 
   void _initiatePayment(BillingPlan plan, String? referralCode) async {
     if (!mounted) return;
-    
+
     setState(() {
       _isActivating = true;
     });
@@ -660,7 +692,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
       print('💳 Initiating payment for plan: ${plan.name}');
       print('📋 Plan ID: ${plan.id}');
       print('🎁 Referral Code: $referralCode');
-      
+
       final response = await ApiService().initiatePayment(
         planId: plan.id,
         referralCode: referralCode,
@@ -670,13 +702,13 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
         print('✅ Payment initiated successfully');
         print('🔗 Authorization URL: ${response.authorizationUrl}');
         print('📋 Reference: ${response.reference}');
-        
+
         if (mounted) {
           setState(() {
             _isActivating = false;
           });
         }
-        
+
         _openPaymentWebView(response.authorizationUrl, response.reference);
       }
     } catch (e) {
@@ -685,11 +717,11 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
         if (e.toString().contains('already have an active activation')) {
           _showErrorDialog(
             'You already have an active activation for this session. '
-            'You cannot purchase another plan until your current activation expires.'
+            'You cannot purchase another plan until your current activation expires.',
           );
           await _loadData();
         } else {
-          _showErrorDialog('Payment initiation failed: $e');
+          _showErrorDialog('Payment initiation failed, check your connection');
         }
         setState(() {
           _isActivating = false;
@@ -710,7 +742,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           },
           onPaymentError: (error) {
             if (mounted) {
-              _showErrorDialog('Payment failed: $error');
+              _showErrorDialog(
+                'Payment failed, so sorry, check your network and try again',
+              );
               setState(() {
                 _isActivating = false;
               });
@@ -723,7 +757,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
 
   void _handlePaymentSuccess(String reference) async {
     if (!mounted) return;
-    
+
     if (mounted) {
       setState(() {
         _isActivating = true;
@@ -732,22 +766,24 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
 
     try {
       print('🔍 Verifying payment with reference: $reference');
-      
+
       await Future.delayed(const Duration(seconds: 2));
-      
+
       final response = await ApiService().verifyPayment(reference);
 
       if (response.success) {
         print('✅ Payment verification successful');
-        
+
         if (mounted) {
           _showPaymentSuccessDialog(
             response.message,
-            response.referralApplied ? '🎉 +10 NTY referral credit applied!' : null,
+            response.referralApplied
+                ? '🎉 +10 NTY referral credit applied!'
+                : null,
             response.grade,
           );
         }
-        
+
         _referralController.clear();
         await _loadData(); // Refresh data after payment
       } else {
@@ -756,7 +792,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
     } catch (e) {
       print('❌ Payment verification error: $e');
       if (mounted) {
-        _showErrorDialog('Payment verification failed: $e');
+        _showErrorDialog('Payment verification failed, check your network');
       }
     } finally {
       if (mounted) {
@@ -805,7 +841,11 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
     );
   }
 
-  void _showPaymentSuccessDialog(String message, [String? bonusMessage, String? grade]) {
+  void _showPaymentSuccessDialog(
+    String message, [
+    String? bonusMessage,
+    String? grade,
+  ]) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -821,10 +861,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              message,
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text(message, style: const TextStyle(fontSize: 16)),
             if (bonusMessage != null) ...[
               const SizedBox(height: 12),
               Text(
@@ -923,9 +960,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           const SizedBox(height: 8),
           const Text(
             'Please complete your academic profile setup with university information to view and purchase available billing plans.',
-            style: TextStyle(
-              color: Colors.black54,
-            ),
+            style: TextStyle(color: Colors.black54),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -956,11 +991,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.wifi_off,
-              size: 100,
-              color: Colors.grey[400],
-            ),
+            Icon(Icons.wifi_off, size: 100, color: Colors.grey[400]),
             const SizedBox(height: 24),
             Text(
               'No Internet Connection',
@@ -974,10 +1005,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
             Text(
               'Please check your internet connection and try again',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
@@ -990,7 +1018,10 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
@@ -1008,10 +1039,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           SizedBox(height: 16),
           Text(
             'Loading activation data...',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
+            style: TextStyle(fontSize: 16, color: Colors.grey),
           ),
         ],
       ),
@@ -1028,7 +1056,11 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.black54, size: 20),
+            icon: const Icon(
+              Icons.arrow_back_ios_rounded,
+              color: Colors.black54,
+              size: 20,
+            ),
             onPressed: () => Navigator.pop(context),
           ),
           title: const Text(
@@ -1050,38 +1082,38 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           ],
         ),
         body: SafeArea(
-          child: !_hasInternet 
+          child: !_hasInternet
               ? _buildNoInternetWidget()
               : _isLoading
-                  ? _buildLoadingWidget()
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Show university warning if no university ID
-                          if (!_hasUniversityData) ...[
-                            _buildUniversityWarning(),
-                            const SizedBox(height: 20),
-                          ],
+              ? _buildLoadingWidget()
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Show university warning if no university ID
+                      if (!_hasUniversityData) ...[
+                        _buildUniversityWarning(),
+                        const SizedBox(height: 20),
+                      ],
 
-                          if (_currentActivation != null) ...[
-                            _buildActivationStatusCard(),
-                            const SizedBox(height: 20),
-                          ],
+                      if (_currentActivation != null) ...[
+                        _buildActivationStatusCard(),
+                        const SizedBox(height: 20),
+                      ],
 
-                          _buildTabSelection(),
+                      _buildTabSelection(),
 
-                          const SizedBox(height: 30),
+                      const SizedBox(height: 30),
 
-                          if (_currentIndex == 0) ...[
-                            _buildActivationSection(),
-                          ] else ...[
-                            _buildBillingSection(),
-                          ],
-                        ],
-                      ),
-                    ),
+                      if (_currentIndex == 0) ...[
+                        _buildActivationSection(),
+                      ] else ...[
+                        _buildBillingSection(),
+                      ],
+                    ],
+                  ),
+                ),
         ),
       ),
     );
@@ -1092,7 +1124,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _currentActivation!.isValid ? Colors.green[50] : Colors.orange[50],
+        color: _currentActivation!.isValid
+            ? Colors.green[50]
+            : Colors.orange[50],
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: _currentActivation!.isValid ? Colors.green : Colors.orange,
@@ -1105,14 +1139,20 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
             children: [
               Icon(
                 _currentActivation!.isValid ? Icons.verified : Icons.warning,
-                color: _currentActivation!.isValid ? Colors.green : Colors.orange,
+                color: _currentActivation!.isValid
+                    ? Colors.green
+                    : Colors.orange,
               ),
               const SizedBox(width: 8),
               Text(
-                _currentActivation!.isValid ? 'Active Subscription' : 'Subscription Status',
+                _currentActivation!.isValid
+                    ? 'Active Subscription'
+                    : 'Subscription Status',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: _currentActivation!.isValid ? Colors.green : Colors.orange,
+                  color: _currentActivation!.isValid
+                      ? Colors.green
+                      : Colors.orange,
                 ),
               ),
             ],
@@ -1122,7 +1162,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
           Text('University: ${_currentActivation!.universityName}'),
           Text('Session: ${_currentActivation!.sessionName}'),
           if (_currentActivation!.duration != null)
-            Text('Duration: ${_currentActivation!.duration!.replaceAll('_', ' ').toUpperCase()}'),
+            Text(
+              'Duration: ${_currentActivation!.duration!.replaceAll('_', ' ').toUpperCase()}',
+            ),
           Text(
             'Status: ${_currentActivation!.isValid ? "Active" : "Inactive"}',
             style: TextStyle(
@@ -1150,7 +1192,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 decoration: BoxDecoration(
-                  gradient: _currentIndex == 0 
+                  gradient: _currentIndex == 0
                       ? const LinearGradient(
                           colors: [Colors.blue, Colors.lightBlue],
                         )
@@ -1177,7 +1219,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 decoration: BoxDecoration(
-                  gradient: _currentIndex == 1 
+                  gradient: _currentIndex == 1
                       ? const LinearGradient(
                           colors: [Colors.purple, Colors.pink],
                         )
@@ -1222,7 +1264,11 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
             children: [
               Row(
                 children: [
-                  Icon(Icons.vpn_key_rounded, color: Colors.blue.shade700, size: 22),
+                  Icon(
+                    Icons.vpn_key_rounded,
+                    color: Colors.blue.shade700,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   const Text(
                     'Activate with Code',
@@ -1278,7 +1324,10 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
                   ),
                   filled: true,
                   fillColor: Colors.grey[50],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                 ),
                 style: const TextStyle(
                   fontSize: 16,
@@ -1323,16 +1372,16 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
                   ),
                   filled: true,
                   fillColor: Colors.grey[50],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 'Using a referral code will credit 10 NTY to the referrer!',
-                style: TextStyle(
-                  color: Colors.green[600],
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: Colors.green[600], fontSize: 12),
               ),
               const SizedBox(height: 25),
               SizedBox(
@@ -1377,9 +1426,9 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
 
   Widget _buildBillingSection() {
     final displayPlans = _plans;
-    
+
     print('🎯 Building billing section with ${displayPlans.length} plans');
-    
+
     if (displayPlans.isEmpty) {
       return Center(
         child: Column(
@@ -1419,7 +1468,11 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
             children: [
               Row(
                 children: [
-                  Icon(Icons.star_rounded, color: Colors.purple.shade700, size: 22),
+                  Icon(
+                    Icons.star_rounded,
+                    color: Colors.purple.shade700,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   const Text(
                     'Choose Your Plan',
@@ -1455,7 +1508,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
             itemBuilder: (context, index) {
               final plan = displayPlans[index];
               final isActive = plan.isClickable;
-              
+
               return Container(
                 width: 320,
                 margin: EdgeInsets.only(
@@ -1474,9 +1527,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
   Widget _buildPlanCard(BillingPlan plan, bool isActive) {
     return Card(
       elevation: 8,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -1490,7 +1541,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
               color: plan.gradientColors[0].withOpacity(0.3),
               blurRadius: 10,
               offset: const Offset(0, 4),
-            )
+            ),
           ],
         ),
         child: Padding(
@@ -1526,16 +1577,21 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: isActive ? Colors.green : Colors.orange,
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: isActive ? Colors.green.withOpacity(0.3) : Colors.orange.withOpacity(0.3),
+                          color: isActive
+                              ? Colors.green.withOpacity(0.3)
+                              : Colors.orange.withOpacity(0.3),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
-                        )
+                        ),
                       ],
                     ),
                     child: Text(
@@ -1589,7 +1645,7 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
                   ),
                 ),
                 const SizedBox(height: 12),
-                
+
                 Expanded(
                   child: ListView.builder(
                     shrinkWrap: true,
@@ -1668,31 +1724,40 @@ Future<Map<String, dynamic>?> _getFreshUserData() async {
 
   IconData _getFeatureIcon(String feature) {
     final lowerFeature = feature.toLowerCase();
-    
+
     if (lowerFeature.contains('access') || lowerFeature.contains('unlimited')) {
       return Icons.all_inclusive;
-    } else if (lowerFeature.contains('support') || lowerFeature.contains('help')) {
+    } else if (lowerFeature.contains('support') ||
+        lowerFeature.contains('help')) {
       return Icons.support_agent;
     } else if (lowerFeature.contains('ai') || lowerFeature.contains('chat')) {
       return Icons.smart_toy;
-    } else if (lowerFeature.contains('download') || lowerFeature.contains('export')) {
+    } else if (lowerFeature.contains('download') ||
+        lowerFeature.contains('export')) {
       return Icons.download;
-    } else if (lowerFeature.contains('priority') || lowerFeature.contains('premium')) {
+    } else if (lowerFeature.contains('priority') ||
+        lowerFeature.contains('premium')) {
       return Icons.star;
-    } else if (lowerFeature.contains('storage') || lowerFeature.contains('cloud')) {
+    } else if (lowerFeature.contains('storage') ||
+        lowerFeature.contains('cloud')) {
       return Icons.cloud;
-    } else if (lowerFeature.contains('feature') || lowerFeature.contains('advanced')) {
+    } else if (lowerFeature.contains('feature') ||
+        lowerFeature.contains('advanced')) {
       return Icons.bolt;
-    } else if (lowerFeature.contains('update') || lowerFeature.contains('latest')) {
+    } else if (lowerFeature.contains('update') ||
+        lowerFeature.contains('latest')) {
       return Icons.update;
-    } else if (lowerFeature.contains('security') || lowerFeature.contains('safe')) {
+    } else if (lowerFeature.contains('security') ||
+        lowerFeature.contains('safe')) {
       return Icons.security;
-    } else if (lowerFeature.contains('mobile') || lowerFeature.contains('app')) {
+    } else if (lowerFeature.contains('mobile') ||
+        lowerFeature.contains('app')) {
       return Icons.phone_iphone;
-    } else if (lowerFeature.contains('web') || lowerFeature.contains('browser')) {
+    } else if (lowerFeature.contains('web') ||
+        lowerFeature.contains('browser')) {
       return Icons.web;
     }
-    
+
     return Icons.check_circle;
   }
 }

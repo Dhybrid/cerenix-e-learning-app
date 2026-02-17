@@ -5,7 +5,8 @@ class CerenixOnboardingScreen extends StatefulWidget {
   const CerenixOnboardingScreen({super.key});
 
   @override
-  State<CerenixOnboardingScreen> createState() => _CerenixOnboardingScreenState();
+  State<CerenixOnboardingScreen> createState() =>
+      _CerenixOnboardingScreenState();
 }
 
 class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
@@ -15,21 +16,24 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
 
   final List<Map<String, dynamic>> _slides = [
     {
-      "image": "assets/images/courses.jpeg",
-      "title": "AI Learning, Redefined",
-      "desc": "Experience personalized education powered by Cerenix AI — made for university & college learners.",
+      "image": "assets/images/AI1.jpg",
+      "title": "AI Learning, Redefined, Scholarship Update",
+      "desc":
+          "Experience personalized education powered by Cerenix AI (cereva)— made for university & college learners.",
       "color": Color(0xFF6366F1),
     },
     {
-      "image": "assets/images/courses.jpeg",
-      "title": "Scan. Solve. Learn.",
-      "desc": "Easily scan handwritten or printed materials and get instant AI-powered assistance.",
+      "image": "assets/images/voice1.jpg",
+      "title": "Voice interaction",
+      "desc":
+          "Talk easily with our AI and get feedback with our cereva voice room",
       "color": Color(0xFFEC4899),
     },
     {
-      "image": "assets/images/courses.jpeg",
+      "image": "assets/images/progress2.jpg",
       "title": "Track Your Growth",
-      "desc": "Analyze your progress, improve performance, and connect globally with other students.",
+      "desc":
+          "Analyze your progress, improve performance, and connect globally with other students.",
       "color": Color(0xFF10B981),
     },
   ];
@@ -94,11 +98,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
             ),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Icon(
-            Icons.school_rounded,
-            color: Colors.white,
-            size: 60,
-          ),
+          child: Icon(Icons.school_rounded, color: Colors.white, size: 60),
         );
       },
     );
@@ -168,7 +168,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                             ),
                           ),
                           SizedBox(height: isSmallScreen ? 40 : 60),
-                          
+
                           // Title
                           Text(
                             data["title"]!,
@@ -181,7 +181,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                             ),
                           ),
                           SizedBox(height: isSmallScreen ? 16 : 24),
-                          
+
                           // Description
                           Text(
                             data["desc"]!,

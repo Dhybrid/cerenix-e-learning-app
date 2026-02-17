@@ -83,6 +83,14 @@ dependencies:
 
   dio: ^5.0.0
   flutter_cache_manager: ^3.3.0
+  flutter_markdown_latex: ^0.3.4
+  # flutter_markdown_latex: ^0.3.4
+  flutter_markdown_plus: ^1.0.7   # or latest
+  flutter_markdown_plus_latex: ^1.0.0
+
+  stop_watch_timer: ^3.0.0
+  flutter_riverpod: ^2.4.9
+  percent_indicator: ^4.2.3
 
 
 dependency_overrides:
@@ -130,23 +138,19 @@ flutter:
     - assets/images/advertboard.jpeg
     - assets/images/profilePicture.jpg
     - assets/images/courses.jpeg
-    - assets/images/futoLogo.jpeg
-    - assets/images/IMSULogo.jpeg
-    - assets/images/NDULogo.jpeg
-    - assets/images/UNILAGLOGO.png
-    - assets/images/UNIBENLogo.png
-    - assets/images/UNNLogo.png
-    - assets/images/UNIPORTLogo.jpeg
-    - assets/images/RSULogo.jpeg
-    - assets/images/UILogo.jpeg
-    - assets/images/UNICALLogo.jpeg
     - assets/images/cerenixiconlittleone.png
     - assets/lottie/Video.json
     - assets/lottie/voiceone.json
     - assets/lottie/activeVoice.json
-    - assets/images/cerenixicon.jpg
     - assets/images/cerenixSpl.png
-    # - assets/images/icon.png
+    - assets/images/AI1.jpg
+    - assets/images/cerenix1.png
+    - assets/images/cerenix2.png
+    - assets/images/cerenix3.png
+    - assets/images/courseboard.png
+    - assets/images/voice1.jpg
+    - assets/images/progress.jpg
+    - assets/images/progress2.jpg
 
 
 flutter_native_splash:

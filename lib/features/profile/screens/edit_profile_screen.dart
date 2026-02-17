@@ -18,18 +18,20 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _passwordFormKey = GlobalKey<FormState>();
-  
+
   // Controllers for editable fields
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
-  
+
   // Password controllers
-  final TextEditingController _currentPasswordController = TextEditingController();
+  final TextEditingController _currentPasswordController =
+      TextEditingController();
   final TextEditingController _newPasswordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
 
   // User data from Hive
   Map<String, dynamic> _userData = {};
@@ -53,7 +55,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       final box = await Hive.openBox('user_box');
       final userData = box.get('current_user');
-      
+
       if (userData != null && userData['id'] != null) {
         setState(() {
           _isUserLoggedIn = true;
@@ -136,20 +138,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           _userData = updatedUserData;
           _isSaving = false;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_hasInternetConnection 
-                ? 'Profile updated successfully!' 
-                : 'Profile saved offline. Sync when online.'),
-            backgroundColor: _hasInternetConnection ? Colors.green : Colors.orange,
+            content: Text(
+              _hasInternetConnection
+                  ? 'Profile updated successfully!'
+                  : 'Profile saved offline. Sync when online.',
+            ),
+            backgroundColor: _hasInternetConnection
+                ? Colors.green
+                : Colors.orange,
             behavior: SnackBarBehavior.fixed,
             duration: const Duration(seconds: 3),
           ),
         );
       } catch (e) {
         setState(() => _isSaving = false);
-        _showError('Failed to save profile: ${e.toString().replaceFirst("Exception: ", "")}');
+        _showError(
+          'Failed to save profile, check your internet connect or contact support (rbaacademy0@gmail.com)',
+        );
       }
     }
   }
@@ -166,9 +174,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         final email = _userData['email'];
         final newPassword = _newPasswordController.text;
 
-        final bool hasPassword = _userData['has_password'] == true || _userData['login_method'] == 'email';
-        
-        String? currentPassword = hasPassword ? _currentPasswordController.text : null;
+        final bool hasPassword =
+            _userData['has_password'] == true ||
+            _userData['login_method'] == 'email';
+
+        String? currentPassword = hasPassword
+            ? _currentPasswordController.text
+            : null;
 
         if (_hasInternetConnection) {
           await ApiService().updatePassword(
@@ -189,13 +201,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
 
         setState(() => _isChangingPassword = false);
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_hasInternetConnection 
-                ? (hasPassword ? 'Password changed successfully!' : 'Password set successfully!')
-                : 'Password saved offline. Sync when online.'),
-            backgroundColor: _hasInternetConnection ? Colors.green : Colors.orange,
+            content: Text(
+              _hasInternetConnection
+                  ? (hasPassword
+                        ? 'Password changed successfully!'
+                        : 'Password set successfully!')
+                  : 'Password saved offline. Sync when online.',
+            ),
+            backgroundColor: _hasInternetConnection
+                ? Colors.green
+                : Colors.orange,
             behavior: SnackBarBehavior.fixed,
             duration: const Duration(seconds: 3),
           ),
@@ -206,7 +224,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _confirmPasswordController.clear();
       } catch (e) {
         setState(() => _isChangingPassword = false);
-        _showError('Failed to update password: ${e.toString().replaceFirst("Exception: ", "")}');
+        _showError(
+          'Failed to save password, check your internet connect or contact support (rbaacademy0@gmail.com)',
+        );
       }
     }
   }
@@ -253,10 +273,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         return Dialog(
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
-          insetPadding: const EdgeInsets.all(20), // ADJUST THIS: Controls dialog margin from screen edges
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          insetPadding: const EdgeInsets.all(
+            20,
+          ), // ADJUST THIS: Controls dialog margin from screen edges
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Container(
-            padding: const EdgeInsets.all(20), // ADJUST THIS: Controls inner padding
+            padding: const EdgeInsets.all(
+              20,
+            ), // ADJUST THIS: Controls inner padding
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,31 +290,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 // ADJUST THIS SECTION: Title row - fixed pixel alignment
                 Row(
                   children: [
-                    Icon(Icons.help_outline, color: Colors.blue.shade600, size: 22), // ADJUST: Icon size
-                    const SizedBox(width: 10), // ADJUST: Space between icon and text
+                    Icon(
+                      Icons.help_outline,
+                      color: Colors.blue.shade600,
+                      size: 22,
+                    ), // ADJUST: Icon size
+                    const SizedBox(
+                      width: 10,
+                    ), // ADJUST: Space between icon and text
                     const Expanded(
                       child: Text(
-                        'Forgot Password?', 
+                        'Forgot Password?',
                         style: TextStyle(
-                          fontWeight: FontWeight.w700, 
+                          fontWeight: FontWeight.w700,
                           fontSize: 18, // ADJUST: Font size
-                          height: 1.2, // ADJUST: Line height to fix pixel issues
+                          height:
+                              1.2, // ADJUST: Line height to fix pixel issues
                         ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16), // ADJUST: Space below title
-                
+
                 const Text(
                   'Please contact the management team to reset your password.',
                   style: TextStyle(fontSize: 14, color: Colors.black87),
                 ),
-                const SizedBox(height: 20), // ADJUST: Space above contact options
-                
+                const SizedBox(
+                  height: 20,
+                ), // ADJUST: Space above contact options
                 // WhatsApp Contact
                 Container(
-                  padding: const EdgeInsets.all(12), // ADJUST: Container padding
+                  padding: const EdgeInsets.all(
+                    12,
+                  ), // ADJUST: Container padding
                   decoration: BoxDecoration(
                     color: Colors.green.shade50,
                     borderRadius: BorderRadius.circular(8),
@@ -296,7 +332,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.chat_outlined, color: Colors.green.shade600, size: 20),
+                      Icon(
+                        Icons.chat_outlined,
+                        color: Colors.green.shade600,
+                        size: 20,
+                      ),
                       const SizedBox(width: 8), // ADJUST: Space after icon
                       Expanded(
                         child: Column(
@@ -310,7 +350,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 4), // ADJUST: Space between label and number
+                            const SizedBox(
+                              height: 4,
+                            ), // ADJUST: Space between label and number
                             Row(
                               children: [
                                 Expanded(
@@ -327,10 +369,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 ),
                                 IconButton(
-                                  icon: Icon(Icons.content_copy, size: 16, color: Colors.green.shade600),
-                                  onPressed: () => _copyToClipboard('08169902281', 'Phone number copied!'),
-                                  padding: EdgeInsets.zero, // ADJUST: Remove button padding
-                                  constraints: const BoxConstraints(minWidth: 30), // ADJUST: Button size
+                                  icon: Icon(
+                                    Icons.content_copy,
+                                    size: 16,
+                                    color: Colors.green.shade600,
+                                  ),
+                                  onPressed: () => _copyToClipboard(
+                                    '08169902281',
+                                    'Phone number copied!',
+                                  ),
+                                  padding: EdgeInsets
+                                      .zero, // ADJUST: Remove button padding
+                                  constraints: const BoxConstraints(
+                                    minWidth: 30,
+                                  ), // ADJUST: Button size
                                 ),
                               ],
                             ),
@@ -340,11 +392,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 12), // ADJUST: Space between contact options
-
+                const SizedBox(
+                  height: 12,
+                ), // ADJUST: Space between contact options
                 // Phone Call Contact
                 Container(
-                  padding: const EdgeInsets.all(12), // ADJUST: Container padding
+                  padding: const EdgeInsets.all(
+                    12,
+                  ), // ADJUST: Container padding
                   decoration: BoxDecoration(
                     color: Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(8),
@@ -352,7 +407,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.phone_outlined, color: Colors.blue.shade600, size: 20),
+                      Icon(
+                        Icons.phone_outlined,
+                        color: Colors.blue.shade600,
+                        size: 20,
+                      ),
                       const SizedBox(width: 8), // ADJUST: Space after icon
                       Expanded(
                         child: Column(
@@ -366,7 +425,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 4), // ADJUST: Space between label and number
+                            const SizedBox(
+                              height: 4,
+                            ), // ADJUST: Space between label and number
                             Row(
                               children: [
                                 Expanded(
@@ -383,10 +444,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 ),
                                 IconButton(
-                                  icon: Icon(Icons.content_copy, size: 16, color: Colors.blue.shade600),
-                                  onPressed: () => _copyToClipboard('08169838619', 'Phone number copied!'),
-                                  padding: EdgeInsets.zero, // ADJUST: Remove button padding
-                                  constraints: const BoxConstraints(minWidth: 30), // ADJUST: Button size
+                                  icon: Icon(
+                                    Icons.content_copy,
+                                    size: 16,
+                                    color: Colors.blue.shade600,
+                                  ),
+                                  onPressed: () => _copyToClipboard(
+                                    '08169838619',
+                                    'Phone number copied!',
+                                  ),
+                                  padding: EdgeInsets
+                                      .zero, // ADJUST: Remove button padding
+                                  constraints: const BoxConstraints(
+                                    minWidth: 30,
+                                  ), // ADJUST: Button size
                                 ),
                               ],
                             ),
@@ -397,7 +468,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 20), // ADJUST: Space above close button
-                
                 // Close Button
                 SizedBox(
                   width: double.infinity,
@@ -409,7 +479,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 12), // ADJUST: Button padding
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                      ), // ADJUST: Button padding
                     ),
                     child: const Text(
                       'Close',
@@ -442,11 +514,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_isUserLoggedIn) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return GestureDetector(
@@ -460,13 +528,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             icon: const Icon(Icons.arrow_back, color: Colors.black),
             onPressed: () => Navigator.pop(context),
           ),
-          title: const Text('Edit Profile', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700)),
+          title: const Text(
+            'Edit Profile',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
+          ),
           centerTitle: false,
           actions: [
             if (!_hasInternetConnection)
               Padding(
                 padding: const EdgeInsets.only(right: 16.0),
-                child: Icon(Icons.wifi_off, color: Colors.orange.shade600, size: 20),
+                child: Icon(
+                  Icons.wifi_off,
+                  color: Colors.orange.shade600,
+                  size: 20,
+                ),
               ),
           ],
         ),
@@ -489,27 +564,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Widget _buildProfilePicture() {
     final avatarUrl = _userData['avatar'] ?? '';
-    final fullAvatarUrl = avatarUrl.isNotEmpty && avatarUrl.startsWith('http') 
-        ? avatarUrl 
+    final fullAvatarUrl = avatarUrl.isNotEmpty && avatarUrl.startsWith('http')
+        ? avatarUrl
         : '${ApiEndpoints.baseUrl}$avatarUrl';
-    
+
     return Column(
       children: [
         Container(
-          width: 100, height: 100,
+          width: 100,
+          height: 100,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             border: Border.all(color: Colors.blue.shade400, width: 3),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: ClipOval(
-            child: fullAvatarUrl.isNotEmpty 
-                ? Image.network(fullAvatarUrl, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar())
+            child: fullAvatarUrl.isNotEmpty
+                ? Image.network(
+                    fullAvatarUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        _buildDefaultAvatar(),
+                  )
                 : _buildDefaultAvatar(),
           ),
         ),
         const SizedBox(height: 12),
-        Text('Profile picture from your account', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+        Text(
+          'Profile picture from your account',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
       ],
     );
   }
@@ -517,7 +607,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget _buildDefaultAvatar() {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.orange.shade300]),
+        gradient: LinearGradient(
+          colors: [Colors.blue.shade400, Colors.orange.shade300],
+        ),
         shape: BoxShape.circle,
       ),
       child: const Icon(Icons.person_rounded, color: Colors.white, size: 40),
@@ -555,13 +647,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Expanded(child: _buildToggleOption('Personal Details', _isEditMode, () => setState(() => _isEditMode = true))),
+          Expanded(
+            child: _buildToggleOption(
+              'Personal Details',
+              _isEditMode,
+              () => setState(() => _isEditMode = true),
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _buildToggleOption('Password', !_isEditMode, () => setState(() => _isEditMode = false))),
+          Expanded(
+            child: _buildToggleOption(
+              'Password',
+              !_isEditMode,
+              () => setState(() => _isEditMode = false),
+            ),
+          ),
         ],
       ),
     );
@@ -577,10 +687,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          title, 
+          title,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey.shade600, 
+            color: isSelected ? Colors.white : Colors.grey.shade600,
             fontWeight: FontWeight.w600,
             fontSize: 14,
           ),
@@ -596,13 +706,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         children: [
           _buildSectionHeader('Personal Information'),
           const SizedBox(height: 16),
-          _buildTextField(_nameController, 'Full Name', Icons.person_outline, _validateName),
+          _buildTextField(
+            _nameController,
+            'Full Name',
+            Icons.person_outline,
+            _validateName,
+          ),
           const SizedBox(height: 16),
-          _buildTextField(_emailController, 'Email Address', Icons.email_outlined, _validateEmail, enabled: false),
+          _buildTextField(
+            _emailController,
+            'Email Address',
+            Icons.email_outlined,
+            _validateEmail,
+            enabled: false,
+          ),
           const SizedBox(height: 16),
-          _buildTextField(_phoneController, 'Phone Number', Icons.phone_outlined, _validatePhone, keyboardType: TextInputType.phone),
+          _buildTextField(
+            _phoneController,
+            'Phone Number',
+            Icons.phone_outlined,
+            _validatePhone,
+            keyboardType: TextInputType.phone,
+          ),
           const SizedBox(height: 16),
-          _buildTextField(_locationController, 'Location', Icons.location_on_outlined, _validateLocation),
+          _buildTextField(
+            _locationController,
+            'Location',
+            Icons.location_on_outlined,
+            _validateLocation,
+          ),
           const SizedBox(height: 24),
           _buildSectionHeader('About Me'),
           const SizedBox(height: 16),
@@ -615,8 +747,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildPasswordForm() {
-    final bool hasPassword = _userData['has_password'] == true || _userData['login_method'] == 'email';
-    
+    final bool hasPassword =
+        _userData['has_password'] == true ||
+        _userData['login_method'] == 'email';
+
     return Form(
       key: _passwordFormKey,
       child: Column(
@@ -629,7 +763,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               controller: _currentPasswordController,
               label: 'Current Password',
               obscureText: _obscureCurrentPassword,
-              onToggleVisibility: () => setState(() => _obscureCurrentPassword = !_obscureCurrentPassword),
+              onToggleVisibility: () => setState(
+                () => _obscureCurrentPassword = !_obscureCurrentPassword,
+              ),
             ),
             const SizedBox(height: 16),
           ],
@@ -638,7 +774,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             controller: _newPasswordController,
             label: 'New Password',
             obscureText: _obscureNewPassword,
-            onToggleVisibility: () => setState(() => _obscureNewPassword = !_obscureNewPassword),
+            onToggleVisibility: () =>
+                setState(() => _obscureNewPassword = !_obscureNewPassword),
           ),
           const SizedBox(height: 16),
 
@@ -646,7 +783,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             controller: _confirmPasswordController,
             label: 'Confirm New Password',
             obscureText: _obscureConfirmPassword,
-            onToggleVisibility: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+            onToggleVisibility: () => setState(
+              () => _obscureConfirmPassword = !_obscureConfirmPassword,
+            ),
             validator: _validateConfirmPassword,
           ),
           const SizedBox(height: 24),
@@ -673,7 +812,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   String? _validateEmail(String? value) {
     if (value == null || value.isEmpty) return 'Please enter your email';
-    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) return 'Please enter a valid email';
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value))
+      return 'Please enter a valid email';
     return null;
   }
 
@@ -689,7 +829,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   String? _validateConfirmPassword(String? value) {
-    if (value == null || value.isEmpty) return 'Please confirm your new password';
+    if (value == null || value.isEmpty)
+      return 'Please confirm your new password';
     if (value != _newPasswordController.text) return 'Passwords do not match';
     return null;
   }
@@ -708,7 +849,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       enabled: enabled,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: enabled ? Colors.grey.shade600 : Colors.grey.shade400),
+        prefixIcon: Icon(
+          icon,
+          color: enabled ? Colors.grey.shade600 : Colors.grey.shade400,
+        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -724,8 +868,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
         filled: true,
         fillColor: enabled ? Colors.white : Colors.grey.shade100,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        labelStyle: TextStyle(color: enabled ? Colors.grey.shade600 : Colors.grey.shade400),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        labelStyle: TextStyle(
+          color: enabled ? Colors.grey.shade600 : Colors.grey.shade400,
+        ),
       ),
       style: TextStyle(
         fontSize: 16,
@@ -749,7 +898,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         labelText: label,
         prefixIcon: Icon(Icons.lock_outline, color: Colors.grey.shade600),
         suffixIcon: IconButton(
-          icon: Icon(obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: Colors.grey.shade600),
+          icon: Icon(
+            obscureText
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            color: Colors.grey.shade600,
+          ),
           onPressed: onToggleVisibility,
         ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -763,15 +917,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
         labelStyle: TextStyle(color: Colors.grey.shade600),
       ),
       style: const TextStyle(fontSize: 16, color: Colors.black87),
-      validator: validator ?? (value) {
-        if (value == null || value.isEmpty) return 'Please enter your $label';
-        if (value.length < 6) return 'Password must be at least 6 characters';
-        return null;
-      },
+      validator:
+          validator ??
+          (value) {
+            if (value == null || value.isEmpty)
+              return 'Please enter your $label';
+            if (value.length < 6)
+              return 'Password must be at least 6 characters';
+            return null;
+          },
     );
   }
 
@@ -791,16 +952,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               Icon(Icons.info_outline, color: Colors.blue.shade600, size: 18),
               const SizedBox(width: 8),
               Text(
-                hasPassword ? 'Change Password' : 'Set Password', 
-                style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.w600),
+                hasPassword ? 'Change Password' : 'Set Password',
+                style: TextStyle(
+                  color: Colors.blue.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            hasPassword 
-              ? '• Enter your current password\n• New password must be at least 6 characters\n• Confirm your new password'
-              : '• Create a new password\n• Must be at least 6 characters\n• Confirm your new password',
+            hasPassword
+                ? '• Enter your current password\n• New password must be at least 6 characters\n• Confirm your new password'
+                : '• Create a new password\n• Must be at least 6 characters\n• Confirm your new password',
             style: TextStyle(color: Colors.blue.shade700, fontSize: 12),
           ),
         ],
@@ -827,13 +991,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Forgot Password?', 
-                    style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w600),
+                    'Forgot Password?',
+                    style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Contact management for assistance', 
-                    style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
+                    'Contact management for assistance',
+                    style: TextStyle(
+                      color: Colors.orange.shade700,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -848,16 +1018,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Row(
       children: [
         Container(
-          height: 20, 
-          width: 4, 
+          height: 20,
+          width: 4,
           decoration: BoxDecoration(
-            color: Colors.blue.shade600, 
-            borderRadius: BorderRadius.circular(2)
+            color: Colors.blue.shade600,
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
         const SizedBox(width: 8),
         Text(
-          title, 
+          title,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
       ],
@@ -887,7 +1057,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
       style: const TextStyle(fontSize: 16, color: Colors.black87),
       validator: (value) {
-        if (value == null || value.isEmpty) return 'Please tell us about yourself';
+        if (value == null || value.isEmpty)
+          return 'Please tell us about yourself';
         if (value.length < 10) return 'Please write a bit more about yourself';
         return null;
       },
@@ -904,7 +1075,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           backgroundColor: Colors.blue.shade600,
           foregroundColor: Colors.white,
           elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           shadowColor: Colors.blue.shade300,
         ),
         child: _isSaving
@@ -912,15 +1085,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 20, 
-                    height: 20, 
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2, 
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white)
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
                   SizedBox(width: 12),
-                  Text('Saving...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  Text(
+                    'Saving...',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
                 ],
               )
             : Row(
@@ -929,8 +1105,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   Icon(Icons.save_rounded, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    _hasInternetConnection ? 'Save Changes' : 'Save Offline', 
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    _hasInternetConnection ? 'Save Changes' : 'Save Offline',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),
@@ -948,7 +1127,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           backgroundColor: Colors.blue.shade600,
           foregroundColor: Colors.white,
           elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           shadowColor: Colors.blue.shade300,
         ),
         child: _isChangingPassword
@@ -956,25 +1137,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 20, 
-                    height: 20, 
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2, 
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white)
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
                   SizedBox(width: 12),
-                  Text('Updating...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  Text(
+                    'Updating...',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
                 ],
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(hasPassword ? Icons.lock_reset_rounded : Icons.lock_outline, size: 20),
+                  Icon(
+                    hasPassword ? Icons.lock_reset_rounded : Icons.lock_outline,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Text(
-                    _hasInternetConnection ? (hasPassword ? 'Change Password' : 'Set Password') : (hasPassword ? 'Change Password Offline' : 'Set Password Offline'), 
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    _hasInternetConnection
+                        ? (hasPassword ? 'Change Password' : 'Set Password')
+                        : (hasPassword
+                              ? 'Change Password Offline'
+                              : 'Set Password Offline'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),

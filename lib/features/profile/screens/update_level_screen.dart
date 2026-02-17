@@ -11,7 +11,8 @@ class UpdateLevelScreen extends StatefulWidget {
   State<UpdateLevelScreen> createState() => _UpdateLevelScreenState();
 }
 
-class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindingObserver {
+class _UpdateLevelScreenState extends State<UpdateLevelScreen>
+    with WidgetsBindingObserver {
   Map<String, dynamic> _userData = {};
   bool _isLoading = true;
   String? _errorMessage;
@@ -43,13 +44,13 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     try {
       final box = await Hive.openBox('user_box');
       final userData = box.get('current_user');
-      
+
       if (userData != null) {
         setState(() {
           _userData = Map<String, dynamic>.from(userData);
         });
         print('👤 Loaded user data - Avatar: ${_userData['avatar']}');
-        
+
         // Load activation status
         await _loadActivationStatus();
       }
@@ -68,11 +69,12 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
   Future<void> _loadActivationStatus() async {
     try {
       final activationData = await ApiService().getActivationStatus();
-      
+
       if (activationData != null && activationData.isValid) {
         setState(() {
           _isActivated = true;
-          _activationStatus = '${activationData.grade?.toUpperCase() ?? 'Activated'}'; // Show grade if available
+          _activationStatus =
+              '${activationData.grade?.toUpperCase() ?? 'Activated'}'; // Show grade if available
         });
         print('✅ User is activated: ${activationData.grade}');
       } else {
@@ -95,11 +97,11 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     try {
       final box = await Hive.openBox('user_box');
       final currentUser = box.get('current_user');
-      
+
       if (currentUser != null) {
         final userId = currentUser['id'];
         final email = currentUser['email'];
-        
+
         // Force refresh from backend by updating profile
         await ApiService().updateProfile(
           userId: userId,
@@ -109,7 +111,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
           phone: _userData['phone'] ?? '',
           location: _userData['location'] ?? '',
         );
-        
+
         // Reload from Hive after update
         final updatedUserData = box.get('current_user');
         if (updatedUserData != null) {
@@ -118,7 +120,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
           });
           print('🔄 Academic data refreshed: $_userData');
         }
-        
+
         // Also refresh activation status
         await _loadActivationStatus();
       }
@@ -130,7 +132,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
 
   // Get user information with proper fallbacks
   String get _userName => _userData['name'] ?? 'User Name';
-  
+
   // Academic information with proper nested access
   String get _userLevel {
     if (_userData['level'] is Map) {
@@ -171,18 +173,18 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
   String get _avatarUrl {
     final avatarUrl = _userData['avatar']?.toString() ?? '';
     print('🖼️ Raw avatar URL from API: $avatarUrl');
-    
+
     if (avatarUrl.isEmpty) {
       print('❌ No avatar URL found');
       return '';
     }
-    
+
     // If it's already a full URL (starts with http), use it directly
     if (avatarUrl.startsWith('http')) {
       print('✅ Using full avatar URL: $avatarUrl');
       return avatarUrl;
     }
-    
+
     // If it's a relative path, construct the full URL
     String fullUrl;
     if (avatarUrl.startsWith('/')) {
@@ -190,7 +192,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     } else {
       fullUrl = '${ApiEndpoints.baseUrl}/$avatarUrl';
     }
-    
+
     print('✅ Constructed avatar URL: $fullUrl');
     return fullUrl;
   }
@@ -207,7 +209,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
 
   // NEW: Helper method to get activation status message
   String _getActivationMessage(bool isActivated) {
-    return isActivated 
+    return isActivated
         ? 'Your account is activated and you have full access to all Cerenix AI features.'
         : 'Activate your account to unlock full access to Cerenix AI features and premium content.';
   }
@@ -216,12 +218,9 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     try {
       // Use push instead of pushReplacement so we can get a result when returning
       final result = await Navigator.pushNamed(
-        context, 
+        context,
         '/academic_setup',
-        arguments: {
-          'userData': _userData,
-          'isUpdating': true,
-        }
+        arguments: {'userData': _userData, 'isUpdating': true},
       );
 
       // If we get a result (like 'updated'), refresh the data immediately
@@ -245,20 +244,13 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.purple.shade400,
-            Colors.purple.shade600,
-          ],
+          colors: [Colors.purple.shade400, Colors.purple.shade600],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         shape: BoxShape.circle,
       ),
-      child: const Icon(
-        Icons.person_rounded,
-        color: Colors.white,
-        size: 30,
-      ),
+      child: const Icon(Icons.person_rounded, color: Colors.white, size: 30),
     );
   }
 
@@ -284,9 +276,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
           ),
           centerTitle: false,
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -359,13 +349,10 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             height: 70,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.purple.shade200,
-                width: 2,
-              ),
+              border: Border.all(color: Colors.purple.shade200, width: 2),
             ),
             child: ClipOval(
-              child: _avatarUrl.isNotEmpty 
+              child: _avatarUrl.isNotEmpty
                   ? Image.network(
                       _avatarUrl,
                       fit: BoxFit.cover,
@@ -400,7 +387,10 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
                 ),
                 const SizedBox(height: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.purple.shade50,
                     borderRadius: BorderRadius.circular(12),
@@ -488,7 +478,9 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             _getActivationMessage(_isActivated),
             style: TextStyle(
               fontSize: 14,
-              color: _isActivated ? Colors.green.shade800 : Colors.orange.shade800,
+              color: _isActivated
+                  ? Colors.green.shade800
+                  : Colors.orange.shade800,
               height: 1.4,
             ),
             textAlign: TextAlign.center,
@@ -501,7 +493,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
               child: ElevatedButton(
                 onPressed: () {
                   // Navigate to activation screen
-                  Navigator.pushNamed(context, '/activation');
+                  Navigator.pushNamed(context, '/activate');
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange.shade600,
@@ -513,10 +505,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
                 ),
                 child: const Text(
                   'Activate Account',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
@@ -554,13 +543,10 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
           const SizedBox(height: 6),
           const Text(
             'Your current academic details and institution information',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey),
           ),
           const SizedBox(height: 24),
-          
+
           // University - Full Name
           _buildAcademicInfoRow(
             Icons.school_rounded,
@@ -569,7 +555,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             Colors.blue.shade600,
           ),
           const SizedBox(height: 18),
-          
+
           // Faculty - Full Name
           _buildAcademicInfoRow(
             Icons.account_balance_rounded,
@@ -578,7 +564,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             Colors.purple.shade600,
           ),
           const SizedBox(height: 18),
-          
+
           // Department - Full Name
           _buildAcademicInfoRow(
             Icons.business_center_rounded,
@@ -587,7 +573,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             Colors.orange.shade600,
           ),
           const SizedBox(height: 18),
-          
+
           // Level - Full Name
           _buildAcademicInfoRow(
             Icons.timeline_rounded,
@@ -596,7 +582,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             Colors.green.shade600,
           ),
           const SizedBox(height: 18),
-          
+
           // Semester - Full Name
           _buildAcademicInfoRow(
             Icons.calendar_month_rounded,
@@ -609,7 +595,12 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
     );
   }
 
-  Widget _buildAcademicInfoRow(IconData icon, String label, String value, Color color) {
+  Widget _buildAcademicInfoRow(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -620,11 +611,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen> with WidgetsBindi
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 22,
-          ),
+          child: Icon(icon, color: color, size: 22),
         ),
         const SizedBox(width: 14),
         Expanded(
