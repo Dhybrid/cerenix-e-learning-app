@@ -92,6 +92,8 @@ dependencies:
   flutter_riverpod: ^2.4.9
   percent_indicator: ^4.2.3
 
+  event_bus: ^2.0.0
+
 
 dependency_overrides:
   flutter_inappwebview: ^6.0.0

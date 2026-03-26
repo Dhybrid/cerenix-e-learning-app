@@ -1,9 +1,12 @@
 // lib/features/courses/screens/course_detail_screen.dart
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../../core/network/api_service.dart';
+import '../../../core/services/activation_status_service.dart';
+import '../../../core/services/event_bus.dart';
 import '../../../features/courses/models/course_models.dart';
 import '../../../core/constants/endpoints.dart';
 import 'lectures.dart';
@@ -28,7 +31,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   bool isLoading = true;
   bool hasError = false;
   String errorMessage = '';
-  
+
   // Activation status
   bool _isUserActivated = false;
   bool _checkingActivation = false;
@@ -37,29 +40,337 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   // Track when screen was last refreshed
   DateTime? _lastRefreshTime;
   static const Duration _refreshInterval = Duration(minutes: 5);
+  StreamSubscription<ActivationStatusChangedEvent>? _activationChangedSubscription;
 
   @override
   void initState() {
     super.initState();
-    _loadInitialData();
+    _activationChangedSubscription = EventBusService.instance
+        .on<ActivationStatusChangedEvent>()
+        .listen((event) {
+          if (!mounted) return;
+          setState(() {
+            _isUserActivated = event.isActivated;
+            _activationStatusMessage = event.isActivated
+                ? (event.grade?.toUpperCase() ?? 'Activated')
+                : 'Not Activated';
+            _checkingActivation = false;
+          });
+        });
+
+    // Start loading immediately
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _activationChangedSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Main data loading method
+  // Future<void> _loadData() async {
+  //   setState(() {
+  //     isLoading = true;
+  //     hasError = false;
+  //   });
+
+  //   try {
+  //     // Check connectivity
+  //     final connectivityResult = await _connectivity.checkConnectivity();
+  //     final isConnected = connectivityResult != ConnectivityResult.none;
+
+  //     // FIRST: Try to get offline outlines if course is downloaded (FASTEST)
+  //     if (widget.course.isDownloaded) {
+  //       final offlineOutlines = await _getDirectOfflineOutlines(
+  //         widget.course.id,
+  //       );
+  //       if (offlineOutlines.isNotEmpty) {
+  //         print(
+  //           '✅ Showing ${offlineOutlines.length} offline outlines immediately',
+  //         );
+
+  //         // Load cached progress
+  //         await _loadCachedProgress(offlineOutlines);
+
+  //         setState(() {
+  //           outlines = offlineOutlines;
+  //           isLoading = false;
+  //         });
+
+  //         // Still try to get fresh data in background if online
+  //         if (isConnected) {
+  //           _fetchFreshData(isConnected);
+  //         }
+  //         return;
+  //       }
+  //     }
+
+  //     // SECOND: Try cached outlines
+  //     final cachedOutlines = await _getCachedOutlines(widget.course.id);
+  //     if (cachedOutlines.isNotEmpty) {
+  //       print('✅ Showing ${cachedOutlines.length} cached outlines');
+
+  //       await _loadCachedProgress(cachedOutlines);
+
+  //       setState(() {
+  //         outlines = cachedOutlines;
+  //         isLoading = false;
+  //       });
+
+  //       // Still try to get fresh data in background if online
+  //       if (isConnected) {
+  //         _fetchFreshData(isConnected);
+  //       }
+  //       return;
+  //     }
+
+  //     // THIRD: No cache, no offline - fetch from API
+  //     if (isConnected) {
+  //       print('🌐 No cache, fetching from API...');
+  //       final apiOutlines = await _apiService.getCourseOutlines(
+  //         int.parse(widget.course.id),
+  //       );
+
+  //       if (apiOutlines.isNotEmpty) {
+  //         await _calculateOutlineProgress(apiOutlines, fromOffline: false);
+
+  //         setState(() {
+  //           outlines = apiOutlines;
+  //           isLoading = false;
+  //         });
+
+  //         await _cacheOutlines(apiOutlines);
+  //       } else {
+  //         // No outlines found
+  //         setState(() {
+  //           isLoading = false;
+  //           outlines = [];
+  //         });
+  //       }
+  //     } else {
+  //       // Offline and no downloaded content
+  //       setState(() {
+  //         isLoading = false;
+  //         hasError = true;
+  //         errorMessage = widget.course.isDownloaded
+  //             ? 'Course was downloaded but no content found. Try re-downloading.'
+  //             : 'No internet connection. Please download this course for offline access.';
+  //       });
+  //     }
+  //   } catch (e) {
+  //     print('❌ Error loading data: $e');
+  //     setState(() {
+  //       isLoading = false;
+  //       hasError = true;
+  //       errorMessage = 'Failed to load course content. Please try again.';
+  //     });
+  //   }
+  // }
+
+  /// Main data loading method
+  Future<void> _loadData() async {
+    setState(() {
+      isLoading = true;
+      hasError = false;
+    });
+
+    try {
+      // Check connectivity
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isConnected = connectivityResult != ConnectivityResult.none;
+
+      // FIRST: Try to get offline outlines if course is downloaded (FASTEST)
+      if (widget.course.isDownloaded) {
+        final offlineOutlines = await _getDirectOfflineOutlines(
+          widget.course.id,
+        );
+        if (offlineOutlines.isNotEmpty) {
+          print(
+            '✅ Showing ${offlineOutlines.length} offline outlines immediately',
+          );
+
+          // Show outlines immediately without progress
+          setState(() {
+            outlines = offlineOutlines;
+            isLoading = false;
+          });
+
+          // Load progress in background (don't await)
+          _loadCachedProgress(offlineOutlines).then((_) {
+            // Still try to get fresh data in background if online
+            if (isConnected) {
+              _fetchFreshData(isConnected);
+            }
+          });
+          return;
+        }
+      }
+
+      // SECOND: Try cached outlines
+      final cachedOutlines = await _getCachedOutlines(widget.course.id);
+      if (cachedOutlines.isNotEmpty) {
+        print('✅ Showing ${cachedOutlines.length} cached outlines');
+
+        // Show outlines immediately without progress
+        setState(() {
+          outlines = cachedOutlines;
+          isLoading = false;
+        });
+
+        // Load progress in background (don't await)
+        _loadCachedProgress(cachedOutlines).then((_) {
+          // Still try to get fresh data in background if online
+          if (isConnected) {
+            _fetchFreshData(isConnected);
+          }
+        });
+        return;
+      }
+
+      // THIRD: No cache, no offline - fetch from API
+      if (isConnected) {
+        print('🌐 No cache, fetching from API...');
+        final apiOutlines = await _apiService.getCourseOutlines(
+          int.parse(widget.course.id),
+        );
+
+        if (apiOutlines.isNotEmpty) {
+          // Show outlines immediately without progress
+          setState(() {
+            outlines = apiOutlines;
+            isLoading = false;
+          });
+
+          // Calculate progress in background (don't await)
+          _calculateOutlineProgress(apiOutlines, fromOffline: false);
+          await _cacheOutlines(apiOutlines);
+        } else {
+          // No outlines found
+          setState(() {
+            isLoading = false;
+            outlines = [];
+          });
+        }
+      } else {
+        // Offline and no downloaded content
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage = widget.course.isDownloaded
+              ? 'Course was downloaded but no content found. Try re-downloading.'
+              : 'No internet connection. Please download this course for offline access.';
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading data: $e');
+      setState(() {
+        isLoading = false;
+        hasError = true;
+        errorMessage = 'Failed to load course content. Please try again.';
+      });
+    }
+  }
+
+  /// Fetch fresh data in background (doesn't block UI)
+  // Future<void> _fetchFreshData(bool isConnected) async {
+  //   try {
+  //     // Check activation in background
+  //     _checkActivationStatus(forceRefresh: true);
+
+  //     if (!isConnected) return;
+
+  //     final freshOutlines = await _apiService.getCourseOutlines(
+  //       int.parse(widget.course.id),
+  //     );
+
+  //     if (freshOutlines.isNotEmpty && mounted) {
+  //       await _calculateOutlineProgress(freshOutlines, fromOffline: false);
+
+  //       setState(() {
+  //         outlines = freshOutlines;
+  //       });
+
+  //       await _cacheOutlines(freshOutlines);
+  //       print('✅ Updated with fresh outlines');
+  //     }
+
+  //     _lastRefreshTime = DateTime.now();
+  //   } catch (e) {
+  //     print('⚠️ Background fetch error: $e');
+  //   }
+  // }
+
+  /// Fetch fresh data in background (doesn't block UI)
+  Future<void> _fetchFreshData(bool isConnected) async {
+    try {
+      // Check activation in background
+      _checkActivationStatus(forceRefresh: true);
+
+      if (!isConnected) return;
+
+      final freshOutlines = await _apiService.getCourseOutlines(
+        int.parse(widget.course.id),
+      );
+
+      if (freshOutlines.isNotEmpty && mounted) {
+        // Update UI with fresh outlines
+        setState(() {
+          outlines = freshOutlines;
+        });
+
+        // Calculate progress in background (don't await)
+        _calculateOutlineProgress(freshOutlines, fromOffline: false);
+        await _cacheOutlines(freshOutlines);
+        print('✅ Updated with fresh outlines');
+      }
+
+      _lastRefreshTime = DateTime.now();
+    } catch (e) {
+      print('⚠️ Background fetch error: $e');
+    }
+  }
+
+  /// Get cached outlines
+  Future<List<CourseOutline>> _getCachedOutlines(String courseId) async {
+    try {
+      final box = await Hive.openBox('course_outlines_cache');
+      final cachedData = box.get('outlines_$courseId');
+
+      if (cachedData != null && cachedData is List) {
+        return cachedData.map((json) => CourseOutline.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('⚠️ Error getting cached outlines: $e');
+    }
+    return [];
+  }
+
+  /// Load cached progress
+  Future<void> _loadCachedProgress(List<CourseOutline> outlines) async {
+    try {
+      final progressBox = await Hive.openBox('outline_progress_cache');
+
+      for (var outline in outlines) {
+        final cachedProgress = progressBox.get('outline_${outline.id}');
+        outlineProgress[outline.id] = cachedProgress ?? 0;
+      }
+
+      print('📊 Loaded cached progress for ${outlines.length} outlines');
+    } catch (e) {
+      print('⚠️ Error loading cached progress: $e');
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check if we need to refresh when screen becomes visible
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForRefresh();
     });
   }
 
-  void _loadInitialData() async {
-    await _checkActivationStatus(forceRefresh: true);
-    await _loadCourseOutlines();
-  }
-
   void _checkForRefresh() {
-    // Refresh if it's been more than 5 minutes
     if (_lastRefreshTime != null) {
       final now = DateTime.now();
       final difference = now.difference(_lastRefreshTime!);
@@ -72,95 +383,50 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   Future<void> _refreshAllData() async {
     print('🔄 Refreshing all data...');
     await _checkActivationStatus(forceRefresh: true);
-    await _refreshOutlines(forceRefresh: true);
+    await _loadData();
     _lastRefreshTime = DateTime.now();
   }
 
   Future<void> _checkActivationStatus({bool forceRefresh = false}) async {
-    setState(() {
-      _checkingActivation = true;
-    });
+    if (mounted) {
+      setState(() {
+        _checkingActivation = true;
+      });
+    }
 
     try {
-      final activationBox = await Hive.openBox('activation_cache');
-      
-      if (!forceRefresh) {
-        // Try cached data first
-        final cachedActivation = activationBox.get('user_activated');
-        final cachedTimestamp = activationBox.get('activation_timestamp');
-        
-        if (cachedActivation != null && cachedTimestamp != null) {
-          final timestamp = DateTime.parse(cachedTimestamp);
-          final now = DateTime.now();
-          final difference = now.difference(timestamp);
-          
-          // Use cached data if it's less than 5 minutes old
-          if (difference.inMinutes < 5) {
-            setState(() {
-              _isUserActivated = cachedActivation;
-              _checkingActivation = false;
-              _activationStatusMessage = _isUserActivated 
-                  ? 'Account activated' 
-                  : 'Account not activated';
-            });
-            print('✅ Using cached activation status: $_isUserActivated');
-            return;
-          }
-        }
+      final cachedStatus = await ActivationStatusService.getCachedStatus();
+      if (cachedStatus.hasCachedValue && mounted) {
+        setState(() {
+          _isUserActivated = cachedStatus.isActivated;
+          _activationStatusMessage = cachedStatus.isActivated
+              ? (cachedStatus.grade?.toUpperCase() ?? 'Activated')
+              : 'Not Activated';
+        });
       }
 
-      // Always fetch fresh data when forceRefresh is true
-      try {
-        final activationData = await ApiService().getActivationStatus();
-        
-        if (activationData != null && activationData.isValid) {
-          setState(() {
-            _isUserActivated = true;
-            _activationStatusMessage = '${activationData.grade?.toUpperCase() ?? 'Activated'}';
-          });
-          
-          // Cache the result with timestamp
-          await activationBox.put('user_activated', true);
-          await activationBox.put('activation_timestamp', DateTime.now().toIso8601String());
-          await activationBox.put('activation_grade', activationData.grade);
-          print('✅ User is activated: ${activationData.grade}');
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated';
-          });
-          
-          // Cache the result
-          await activationBox.put('user_activated', false);
-          await activationBox.put('activation_timestamp', DateTime.now().toIso8601String());
-          print('ℹ️ User is not activated');
-        }
-      } catch (e) {
-        print('❌ Error fetching activation from API: $e');
-        
-        // Fallback to cached data if available
-        final cachedActivation = activationBox.get('user_activated');
-        if (cachedActivation != null) {
-          setState(() {
-            _isUserActivated = cachedActivation;
-            _activationStatusMessage = _isUserActivated 
-                ? 'Account activated (offline)' 
-                : 'Account not activated (offline)';
-          });
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated (offline)';
-          });
-        }
-      }
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: forceRefresh,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isUserActivated = status.isActivated;
+        _activationStatusMessage = status.isActivated
+            ? (status.grade?.toUpperCase() ?? 'Activated')
+            : 'Not Activated';
+      });
     } catch (e) {
       print('❌ Error in activation check: $e');
-      setState(() {
-        _isUserActivated = false;
-        _activationStatusMessage = 'Error checking activation';
-        _checkingActivation = false;
-      });
+      if (mounted) {
+        setState(() {
+          _activationStatusMessage = _isUserActivated
+              ? 'Activated'
+              : 'Not Activated';
+          _checkingActivation = false;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -169,320 +435,35 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       }
     }
   }
-      
 
-
-//   Future<void> _loadCourseOutlines() async {
-//   setState(() {
-//     isLoading = true;
-//     hasError = false;
-//     errorMessage = '';
-//   });
-
-//   bool isConnected = false; // Declare at method scope
-  
-//   try {
-//     // Check connectivity
-//     final connectivityResult = await _connectivity.checkConnectivity();
-//     isConnected = connectivityResult != ConnectivityResult.none; // Assign here
-    
-//     // Check if course is downloaded for offline use
-//     final isCourseDownloaded = widget.course.isDownloaded;
-    
-//     List<CourseOutline> fetchedOutlines = [];
-    
-//     if (isCourseDownloaded && !isConnected) {
-//       // Try to load from offline storage when offline
-//       print('📂 Course is downloaded, loading from offline storage...');
-//       fetchedOutlines = await _getOfflineOutlines(widget.course.id);
-      
-//       if (fetchedOutlines.isNotEmpty) {
-//         print('✅ Loaded ${fetchedOutlines.length} outlines from offline storage');
-        
-//         // Calculate progress from offline data
-//         await _calculateOutlineProgress(fetchedOutlines, fromOffline: true);
-        
-//         setState(() {
-//           outlines = fetchedOutlines;
-//           isLoading = false;
-//         });
-//         _lastRefreshTime = DateTime.now();
-//         return;
-//       } else {
-//         // Offline storage empty
-//         throw Exception('Course content not available offline. Please re-download the course.');
-//       }
-//     } else if (isConnected) {
-//       // Always use API when online for fresh progress data
-//       print('🌐 Loading outlines from API...');
-//       fetchedOutlines = await _apiService.getCourseOutlines(
-//         int.parse(widget.course.id),
-//       );
-      
-//       if (fetchedOutlines.isNotEmpty) {
-//         await _calculateOutlineProgress(fetchedOutlines, fromOffline: false);
-//       }
-
-//       setState(() {
-//         outlines = fetchedOutlines;
-//         isLoading = false;
-//       });
-//       _lastRefreshTime = DateTime.now();
-      
-//       // Save to cache for future offline use
-//       await _cacheOutlines(fetchedOutlines);
-      
-//     } else {
-//       // Not connected and not downloaded
-//       throw Exception('Course not available offline. Please download it first.');
-//     }
-
-//   } catch (e) {
-//     print('❌ Error loading course outlines: $e');
-//     setState(() {
-//       isLoading = false;
-//       hasError = true;
-//       errorMessage = widget.course.isDownloaded 
-//           ? 'Failed to load offline content. Please try re-opening the course.'
-//           : 'Failed to load course content. ${isConnected ? 'Please try again.' : 'Please check your connection or download the course for offline use.'}';
-//     });
-//   }
-// }
-
-Future<void> _loadCourseOutlines() async {
-  print('🔄 Loading course outlines...');
-  print('📊 Course ID: ${widget.course.id}, Downloaded: ${widget.course.isDownloaded}');
-  
-  setState(() {
-    isLoading = true;
-    hasError = false;
-    errorMessage = '';
-  });
-
-  bool isConnected = false; // Declare here so it's accessible in catch block
-
-  try {
-    // Check connectivity
-    final connectivityResult = await _connectivity.checkConnectivity();
-    isConnected = connectivityResult != ConnectivityResult.none; // Assign here
-    
-    print('📡 Connectivity: ${isConnected ? 'Online' : 'Offline'}');
-    
-    // SIMPLIFIED: Always try offline first if course is marked as downloaded
-    if (widget.course.isDownloaded) {
-      print('📂 Trying to load from offline storage...');
-      
-      // Method 1: Try direct Hive access
-      List<CourseOutline> offlineOutlines = await _getDirectOfflineOutlines(widget.course.id);
-      
-      if (offlineOutlines.isNotEmpty) {
-        print('✅ Successfully loaded ${offlineOutlines.length} outlines from offline storage');
-        
-        // Calculate progress from offline data
-        await _calculateOutlineProgress(offlineOutlines, fromOffline: true);
-        
-        setState(() {
-          outlines = offlineOutlines;
-          isLoading = false;
-        });
-        _lastRefreshTime = DateTime.now();
-        return;
-      } else {
-        print('❌ No outlines found in offline storage');
-        
-        // If online, fall back to API
-        if (isConnected) {
-          print('🌐 Falling back to API...');
-          await _loadOutlinesFromAPI();
-          return;
-        } else {
-          // Offline and no data
-          throw Exception('This course was downloaded but no content was found. Please re-download it.');
-        }
-      }
-    } 
-    
-    // If not downloaded, use API if online
-    else if (isConnected) {
-      print('🌐 Loading from API...');
-      await _loadOutlinesFromAPI();
-      return;
-    } 
-    
-    // Not downloaded and offline
-    else {
-      throw Exception('Course not available offline. Please download it first.');
-    }
-
-  } catch (e) {
-    print('❌ Error loading course outlines: $e');
-    setState(() {
-      isLoading = false;
-      hasError = true;
-      errorMessage = widget.course.isDownloaded 
-          ? 'Failed to load offline content. The course might not be properly downloaded. Please try re-downloading it.'
-          : 'Failed to load course content. ${isConnected ? 'Please try again.' : 'Please check your connection or download the course for offline use.'}';
-    });
-  }
-}
-
-// Helper: Load from API
-Future<void> _loadOutlinesFromAPI() async {
-  final fetchedOutlines = await _apiService.getCourseOutlines(
-    int.parse(widget.course.id),
-  );
-  
-  if (fetchedOutlines.isNotEmpty) {
-    await _calculateOutlineProgress(fetchedOutlines, fromOffline: false);
-  }
-
-  setState(() {
-    outlines = fetchedOutlines;
-    isLoading = false;
-  });
-  _lastRefreshTime = DateTime.now();
-  
-  // Save to cache for future offline use
-  await _cacheOutlines(fetchedOutlines);
-}
-
-// SIMPLIFIED: Direct Hive access method
-Future<List<CourseOutline>> _getDirectOfflineOutlines(String courseId) async {
-  try {
-    print('🔍 Getting offline outlines for course: $courseId');
-    
-    // Open the offline box
-    final offlineBox = await Hive.openBox('offline_courses');
-    
-    // Get course data
-    final courseData = offlineBox.get('course_$courseId');
-    if (courseData == null) {
-      print('❌ No course data found for ID: $courseId');
-      return [];
-    }
-    
-    // Convert to Map
-    final data = Map<String, dynamic>.from(courseData);
-    print('📁 Found offline data for course $courseId');
-    print('🗝️ Data keys: ${data.keys.toList()}');
-    
-    // Check for outlines
-    if (data['outlines'] != null && data['outlines'] is List) {
-      final outlinesJson = data['outlines'] as List;
-      print('📄 Found ${outlinesJson.length} outline(s) in offline storage');
-      
-      final outlines = <CourseOutline>[];
-      
-      for (int i = 0; i < outlinesJson.length; i++) {
-        try {
-          final outlineData = outlinesJson[i];
-          
-          if (outlineData is Map<String, dynamic>) {
-            final outline = CourseOutline.fromJson(outlineData);
-            outlines.add(outline);
-            print('   ✅ Outline $i: ${outline.title}');
-          } else if (outlineData is Map) {
-            // Convert to Map<String, dynamic>
-            final json = Map<String, dynamic>.from(outlineData);
-            final outline = CourseOutline.fromJson(json);
-            outlines.add(outline);
-            print('   ✅ Outline $i: ${outline.title}');
-          } else {
-            print('   ⚠️ Outline $i is not a Map, type: ${outlineData.runtimeType}');
-          }
-        } catch (e) {
-          print('   ❌ Error parsing outline $i: $e');
-        }
-      }
-      
-      print('✅ Successfully parsed ${outlines.length} outline(s)');
-      return outlines;
-    } else {
-      print('❌ No outlines found in offline storage');
-      return [];
-    }
-  } catch (e) {
-    print('❌ Error in _getDirectOfflineOutlines: $e');
-    print('📋 Stack trace: ${e.toString()}');
-    return [];
-  }
-}
-// #######################
-
-
-
-
-// ##############################
-
-  // Updated method to get offline outlines
-Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
-  try {
-    print('🔍 Getting offline outlines from Hive for course: $courseId');
-    
-    // First try the OfflineService
-    final offlineService = OfflineService();
-    final outlines = await offlineService.getOfflineOutlines(courseId);
-    
-    if (outlines.isNotEmpty) {
-      print('✅ Got ${outlines.length} outlines from OfflineService');
-      return outlines;
-    }
-    
-    // Fallback to direct Hive access
-    print('🔄 Falling back to direct Hive access...');
-    final offlineBox = await Hive.openBox('offline_courses');
-    final courseData = offlineBox.get('course_$courseId');
-    
-    if (courseData != null && courseData['outlines'] != null) {
-      print('📂 Found data in Hive for course $courseId');
-      final outlinesJson = courseData['outlines'] as List;
-      print('📄 Parsing ${outlinesJson.length} outlines...');
-      
-      final parsedOutlines = outlinesJson.map((json) {
-        try {
-          return CourseOutline.fromJson(json);
-        } catch (e) {
-          print('⚠️ Error parsing outline JSON: $e');
-          print('📄 JSON: $json');
-          return null;
-        }
-      }).where((outline) => outline != null).cast<CourseOutline>().toList();
-      
-      print('✅ Parsed ${parsedOutlines.length} outlines');
-      return parsedOutlines;
-    } else {
-      print('❌ No course data or outlines found in Hive');
-      if (courseData != null) {
-        print('📊 Course data keys: ${(courseData as Map).keys.toList()}');
-      }
-    }
-  } catch (e) {
-    print('❌ Error getting offline outlines: $e');
-    // Print stack trace for debugging
-    print('📋 Stack trace:');
-    print(e.toString());
-  }
-  return [];
-}
-
-  // New method to cache outlines
   Future<void> _cacheOutlines(List<CourseOutline> outlines) async {
     try {
       final courseId = widget.course.id;
-      final offlineBox = await Hive.openBox('course_outlines_cache');
+      final box = await Hive.openBox('course_outlines_cache');
       final outlinesData = outlines.map((outline) => outline.toJson()).toList();
-      
-      await offlineBox.put('outlines_$courseId', outlinesData);
-      await offlineBox.put('outlines_timestamp_$courseId', DateTime.now().toIso8601String());
-      
+
+      await box.put('outlines_$courseId', outlinesData);
+      await box.put(
+        'outlines_timestamp_$courseId',
+        DateTime.now().toIso8601String(),
+      );
+
       print('💾 Cached ${outlines.length} outlines for course $courseId');
+
+      // Also cache progress
+      final progressBox = await Hive.openBox('outline_progress_cache');
+      outlineProgress.forEach((outlineId, progress) {
+        progressBox.put('outline_$outlineId', progress);
+      });
     } catch (e) {
       print('❌ Error caching outlines: $e');
     }
   }
 
-  // Updated _calculateOutlineProgress method
-  Future<void> _calculateOutlineProgress(List<CourseOutline> outlines, {bool fromOffline = false}) async {
+  Future<void> _calculateOutlineProgress(
+    List<CourseOutline> outlines, {
+    bool fromOffline = false,
+  }) async {
     try {
       int totalCompletedTopics = 0;
       int totalTopics = 0;
@@ -490,17 +471,16 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
       for (var outline in outlines) {
         try {
           List<Topic> topics = [];
-          
+
           if (fromOffline) {
-            // Get topics from offline storage
-            topics = await _getOfflineTopicsForOutline(widget.course.id, outline.id);
-            print('📂 Getting topics from offline for outline ${outline.id}: ${topics.length} topics');
+            topics = await _getOfflineTopicsForOutline(
+              widget.course.id,
+              outline.id,
+            );
           } else {
-            // Always use API for fresh progress data when online
             topics = await _apiService.getTopics(
               outlineId: int.parse(outline.id),
             );
-            print('🌐 Getting topics from API for outline ${outline.id}: ${topics.length} topics');
           }
 
           if (topics.isNotEmpty) {
@@ -513,11 +493,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
 
             final progress = ((completedTopics / topics.length) * 100).round();
             outlineProgress[outline.id] = progress;
-            
+
             totalCompletedTopics += completedTopics;
             totalTopics += topics.length;
-
-            print('📊 Outline ${outline.id} progress: $progress% ($completedTopics/${topics.length} topics)');
           } else {
             outlineProgress[outline.id] = 0;
           }
@@ -527,13 +505,10 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
         }
       }
 
-      // Calculate and update overall course progress
       final overallProgress = totalTopics > 0
           ? ((totalCompletedTopics / totalTopics) * 100).round()
           : 0;
       final finalProgress = overallProgress > 100 ? 100 : overallProgress;
-
-      print('📊 Course ${widget.course.code} overall progress: $finalProgress% ($totalCompletedTopics/$totalTopics topics)');
 
       if (mounted) {
         setState(() {
@@ -541,27 +516,29 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
         });
       }
 
-      // Save to cache
       await _saveCourseProgressToCache(finalProgress);
     } catch (e) {
       print('⚠️ Error in outline progress calculation: $e');
     }
   }
 
-  // New method to get offline topics for an outline
-  Future<List<Topic>> _getOfflineTopicsForOutline(String courseId, String outlineId) async {
+  Future<List<Topic>> _getOfflineTopicsForOutline(
+    String courseId,
+    String outlineId,
+  ) async {
     try {
       final offlineBox = await Hive.openBox('offline_courses');
       final courseData = offlineBox.get('course_$courseId');
-      
+
       if (courseData != null && courseData['topics'] != null) {
         final topicsJson = courseData['topics'] as List;
-        final allTopics = topicsJson.map((json) => Topic.fromJson(json)).toList();
-        
-        // Filter topics by outlineId
-        final outlineTopics = allTopics.where((topic) => topic.outlineId == outlineId).toList();
-        print('📂 Found ${outlineTopics.length} topics for outline $outlineId in offline storage');
-        return outlineTopics;
+        final allTopics = topicsJson
+            .map((json) => Topic.fromJson(json))
+            .toList();
+
+        return allTopics
+            .where((topic) => topic.outlineId == outlineId)
+            .toList();
       }
     } catch (e) {
       print('❌ Error getting offline topics: $e');
@@ -609,7 +586,45 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
     if (forceRefresh) {
       await _invalidateProgressCache();
     }
-    await _loadCourseOutlines();
+    await _loadData();
+  }
+
+  Future<List<CourseOutline>> _getDirectOfflineOutlines(String courseId) async {
+    try {
+      print('🔍 Getting offline outlines for course: $courseId');
+
+      final offlineBox = await Hive.openBox('offline_courses');
+      final courseData = offlineBox.get('course_$courseId');
+
+      if (courseData == null) {
+        return [];
+      }
+
+      final data = Map<String, dynamic>.from(courseData);
+
+      if (data['outlines'] != null && data['outlines'] is List) {
+        final outlinesJson = data['outlines'] as List;
+        final outlines = <CourseOutline>[];
+
+        for (var outlineData in outlinesJson) {
+          try {
+            if (outlineData is Map<String, dynamic>) {
+              outlines.add(CourseOutline.fromJson(outlineData));
+            } else if (outlineData is Map) {
+              final json = Map<String, dynamic>.from(outlineData);
+              outlines.add(CourseOutline.fromJson(json));
+            }
+          } catch (e) {
+            print('   ❌ Error parsing outline: $e');
+          }
+        }
+
+        return outlines;
+      }
+    } catch (e) {
+      print('❌ Error in _getDirectOfflineOutlines: $e');
+    }
+    return [];
   }
 
   void _navigateToOutline(CourseOutline outline, int index) async {
@@ -618,10 +633,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
       return;
     }
 
-    // Check if we can navigate to this outline
     final connectivityResult = await _connectivity.checkConnectivity();
     final isConnected = connectivityResult != ConnectivityResult.none;
-    
+
     if (!isConnected && !widget.course.isDownloaded) {
       _showOfflineErrorDialog();
       return;
@@ -636,7 +650,6 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
           outlines: outlines,
           onProgressUpdated: (progressChanged) {
             if (progressChanged) {
-              // Force refresh when returning
               Future.delayed(Duration(milliseconds: 300), () {
                 if (mounted) {
                   _refreshOutlines(forceRefresh: true);
@@ -647,11 +660,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
         ),
       ),
     );
-    
-    // Always refresh when returning from lecture screen
+
     if (mounted) {
       await _refreshOutlines(forceRefresh: true);
-      // Also refresh activation status in case user activated
       await _checkActivationStatus(forceRefresh: true);
     }
   }
@@ -660,9 +671,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(
@@ -673,10 +682,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
             const SizedBox(width: 12),
             const Text(
               'Offline Mode',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
             ),
           ],
         ),
@@ -740,10 +746,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'OK',
-              style: TextStyle(color: Color(0xFF666666)),
-            ),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF666666))),
           ),
         ],
       ),
@@ -759,9 +762,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(
@@ -772,10 +773,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
             const SizedBox(width: 12),
             const Text(
               'Outline Locked',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
             ),
           ],
         ),
@@ -832,9 +830,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              // Navigate to activation screen and wait for result
               final result = await Navigator.pushNamed(context, '/activation');
-              // Refresh activation status when returning
               if (mounted) {
                 await _checkActivationStatus(forceRefresh: true);
               }
@@ -865,7 +861,8 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
   String _getCourseDescription() {
     String? description = widget.course.description;
     if (description == null || description.isEmpty) {
-      description = 'This course covers ${widget.course.title.toLowerCase()}. Master fundamental concepts and practical applications through interactive lessons.';
+      description =
+          'This course covers ${widget.course.title.toLowerCase()}. Master fundamental concepts and practical applications through interactive lessons.';
     }
     final words = description.split(' ');
     if (words.length > 30) {
@@ -875,7 +872,6 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
   }
 
   DecorationImage? _getBackgroundImage() {
-    // First try local image path if course is downloaded
     if (widget.course.isDownloaded && widget.course.localImagePath != null) {
       try {
         final file = File(widget.course.localImagePath!);
@@ -894,7 +890,6 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
       }
     }
 
-    // Fall back to network image
     String? courseImageUrl = widget.course.imageUrl != null
         ? _convertImageUrl(widget.course.imageUrl)
         : null;
@@ -989,19 +984,25 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                       ),
                     ),
                   ),
-                // Offline indicator
                 if (!hasError && widget.course.isDownloaded)
                   Padding(
                     padding: const EdgeInsets.only(right: 16),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.green.withOpacity(0.9),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.download_done_rounded, size: 14, color: Colors.white),
+                          Icon(
+                            Icons.download_done_rounded,
+                            size: 14,
+                            color: Colors.white,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             'Offline',
@@ -1031,7 +1032,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                   children: [
                     const SizedBox(height: 30),
 
-                    if (!_isUserActivated && !_checkingActivation) 
+                    if (!_isUserActivated && !_checkingActivation)
                       _buildActivationBanner(),
 
                     _buildCourseDescription(),
@@ -1039,7 +1040,10 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
 
                     if (isLoading) _buildLoadingState(),
                     if (hasError) _buildErrorState(),
-                    if (!isLoading && !hasError) _buildCourseOutlineSection(),
+                    if (!isLoading && !hasError && outlines.isNotEmpty)
+                      _buildCourseOutlineSection(),
+                    if (!isLoading && !hasError && outlines.isEmpty)
+                      _buildEmptyState(),
 
                     const SizedBox(height: 40),
                   ],
@@ -1170,16 +1174,25 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                     if (widget.course.isDownloaded)
                       Container(
                         margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.green.withOpacity(0.3)),
+                          border: Border.all(
+                            color: Colors.green.withOpacity(0.3),
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.download_done_rounded, size: 14, color: Colors.green.shade700),
+                            Icon(
+                              Icons.download_done_rounded,
+                              size: 14,
+                              color: Colors.green.shade700,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               'Available offline',
@@ -1292,8 +1305,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final containerWidth = constraints.maxWidth;
-                  final progressWidth = (widget.course.progress / 100) * containerWidth;
-                  
+                  final progressWidth =
+                      (widget.course.progress / 100) * containerWidth;
+
                   return Container(
                     height: 8,
                     width: containerWidth,
@@ -1313,7 +1327,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 800),
                           curve: Curves.easeOut,
-                          width: widget.course.progress == 100 
+                          width: widget.course.progress == 100
                               ? containerWidth
                               : progressWidth.clamp(0, containerWidth),
                           decoration: BoxDecoration(
@@ -1412,13 +1426,11 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
               ),
               child: const Text('Retry', style: TextStyle(color: Colors.white)),
             ),
-            if (widget.course.isDownloaded)
-              const SizedBox(height: 10),
+            if (widget.course.isDownloaded) const SizedBox(height: 10),
             if (widget.course.isDownloaded)
               ElevatedButton(
                 onPressed: () {
-                  // Try to load from offline storage again
-                  _loadCourseOutlines();
+                  _loadData();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
@@ -1426,7 +1438,10 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text('Load Offline Content', style: TextStyle(color: Colors.white)),
+                child: const Text(
+                  'Load Offline Content',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
           ],
         ),
@@ -1463,7 +1478,12 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
           ),
         ),
         const SizedBox(height: 20),
-        ...outlines.map((outline) => _buildOutlineItem(outline, outlines.indexOf(outline))).toList(),
+        ...outlines
+            .map(
+              (outline) =>
+                  _buildOutlineItem(outline, outlines.indexOf(outline)),
+            )
+            .toList(),
       ],
     );
   }
@@ -1499,7 +1519,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                       height: 44,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isLocked ? Colors.grey.shade200 : const Color(0xFFF0F0F0),
+                        color: isLocked
+                            ? Colors.grey.shade200
+                            : const Color(0xFFF0F0F0),
                       ),
                     ),
                     if (!isLocked && progress > 0)
@@ -1521,16 +1543,13 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: isLocked 
+                        color: isLocked
                             ? Colors.grey.shade300
                             : progress == 100
-                                ? Colors.green
-                                : widget.course.color.withOpacity(0.1),
+                            ? Colors.green
+                            : widget.course.color.withOpacity(0.1),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                       child: Center(
                         child: isLocked
@@ -1540,21 +1559,21 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                                 color: Colors.grey.shade600,
                               )
                             : progress == 100
-                                ? const Icon(
-                                    Icons.check_rounded,
-                                    size: 20,
-                                    color: Colors.white,
-                                  )
-                                : Text(
-                                    '${index + 1}',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: progress == 100
-                                          ? Colors.white
-                                          : widget.course.color,
-                                    ),
-                                  ),
+                            ? const Icon(
+                                Icons.check_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              )
+                            : Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: progress == 100
+                                      ? Colors.white
+                                      : widget.course.color,
+                                ),
+                              ),
                       ),
                     ),
                   ],
@@ -1569,7 +1588,9 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: isLocked ? Colors.grey.shade600 : const Color(0xFF333333),
+                          color: isLocked
+                              ? Colors.grey.shade600
+                              : const Color(0xFF333333),
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -1577,7 +1598,10 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                       SizedBox(height: isLocked ? 8 : 12),
                       if (isLocked)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.orange.shade50,
                             borderRadius: BorderRadius.circular(8),
@@ -1603,7 +1627,7 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                             ],
                           ),
                         )
-                      else 
+                      else
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1633,7 +1657,8 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                             LayoutBuilder(
                               builder: (context, constraints) {
                                 final containerWidth = constraints.maxWidth;
-                                final progressWidth = (progress / 100) * containerWidth;
+                                final progressWidth =
+                                    (progress / 100) * containerWidth;
                                 return Container(
                                   height: 6,
                                   width: containerWidth,
@@ -1647,20 +1672,29 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                                         width: containerWidth,
                                         decoration: BoxDecoration(
                                           color: const Color(0xFFF0F0F0),
-                                          borderRadius: BorderRadius.circular(3),
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
                                         ),
                                       ),
                                       AnimatedContainer(
-                                        duration: const Duration(milliseconds: 800),
+                                        duration: const Duration(
+                                          milliseconds: 800,
+                                        ),
                                         curve: Curves.easeOut,
-                                        width: progress == 100 
+                                        width: progress == 100
                                             ? containerWidth
-                                            : progressWidth.clamp(0, containerWidth),
+                                            : progressWidth.clamp(
+                                                0,
+                                                containerWidth,
+                                              ),
                                         decoration: BoxDecoration(
                                           color: progress == 100
                                               ? Colors.green
                                               : widget.course.color,
-                                          borderRadius: BorderRadius.circular(3),
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -1680,22 +1714,22 @@ Future<List<CourseOutline>> _getOfflineOutlines(String courseId) async {
                     color: isLocked
                         ? Colors.grey.shade200
                         : progress == 100
-                            ? Colors.green.withOpacity(0.1)
-                            : widget.course.color.withOpacity(0.1),
+                        ? Colors.green.withOpacity(0.1)
+                        : widget.course.color.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     isLocked
                         ? Icons.lock_outline_rounded
                         : progress == 100
-                            ? Icons.check_rounded
-                            : Icons.play_arrow_rounded,
+                        ? Icons.check_rounded
+                        : Icons.play_arrow_rounded,
                     size: 18,
                     color: isLocked
                         ? Colors.grey.shade500
-                        : progress == 100 
-                            ? Colors.green 
-                            : widget.course.color,
+                        : progress == 100
+                        ? Colors.green
+                        : widget.course.color,
                   ),
                 ),
               ],

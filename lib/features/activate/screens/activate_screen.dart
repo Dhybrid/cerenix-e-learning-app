@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import '../../../core/network/api_service.dart';
+import '../../../core/services/activation_status_service.dart';
+import '../../../core/services/event_bus.dart';
 import '../models/activation_models.dart';
 import 'payment_webview_screen.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -453,6 +455,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
       if (response.success) {
         print('✅ PIN activation successful');
+        await ActivationStatusService.markActivated(grade: response.grade);
+        EventBusService.instance.fire(
+          ActivationStatusChangedEvent(
+            isActivated: true,
+            grade: response.grade,
+          ),
+        );
         _showSuccessDialog(
           response.message,
           response.referralApplied
@@ -773,6 +782,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
       if (response.success) {
         print('✅ Payment verification successful');
+        await ActivationStatusService.markActivated(grade: response.grade);
+        EventBusService.instance.fire(
+          ActivationStatusChangedEvent(
+            isActivated: true,
+            grade: response.grade,
+          ),
+        );
 
         if (mounted) {
           _showPaymentSuccessDialog(

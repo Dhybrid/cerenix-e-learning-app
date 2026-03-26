@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -46,6 +47,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   final List<bool> _isBookmarked = [];
   final List<bool> _isFlagged = [];
   final List<int> _flagCounts = []; // Track total flags per question
+  final Map<String, String> _offlineDownloadedImageMap = {};
   bool _isLoading = true;
   bool _isOffline = false;
   bool _isEmptyTopic = false;
@@ -56,7 +58,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   bool _checkingActivation = false;
   String _activationStatusMessage = 'Checking activation status...';
   int _maxQuestionsForNonActivated =
-      2; // Show only 2 questions for non-activated users
+      7; // Show only 2 questions for non-activated users
   // ========== END ACTIVATION STATE ==========
 
   @override
@@ -183,7 +185,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
 
     setState(() {
       _isLoading = true;
-      _isOffline = false;
+      _isOffline = true;
       _isEmptyTopic = false;
       _errorMessage = '';
     });
@@ -517,6 +519,31 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       if (courseData == null) {
         print('⚠️ No offline data found for course: ${widget.courseId}');
         return [];
+      }
+
+      _offlineDownloadedImageMap.clear();
+      if (courseData.containsKey('downloaded_images')) {
+        final downloadedImages = courseData['downloaded_images'];
+        if (downloadedImages is Map) {
+          downloadedImages.forEach((key, value) {
+            if (value is Map) {
+              final originalUrl = value['original_url']?.toString();
+              final localPath = value['path']?.toString();
+
+              if (originalUrl != null &&
+                  originalUrl.isNotEmpty &&
+                  localPath != null &&
+                  localPath.isNotEmpty) {
+                _offlineDownloadedImageMap[originalUrl] = localPath;
+                final normalizedOriginal = _normalizeImageUrl(originalUrl);
+                _offlineDownloadedImageMap[normalizedOriginal] = localPath;
+              }
+            }
+          });
+          print(
+            '🖼️ Loaded ${_offlineDownloadedImageMap.length} offline image mappings',
+          );
+        }
       }
 
       final testQuestionsData = courseData['test_questions'] as List?;
@@ -1441,6 +1468,10 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   Widget _buildFormattedContent(String content, {bool isAnswer = false}) {
     if (content.isEmpty) return Container();
 
+    if (_shouldRenderAsHtml(content)) {
+      return _buildHtmlFormattedContent(content, isAnswer: isAnswer);
+    }
+
     // Convert CKEditor HTML to clean markdown
     final cleanContent = _convertCkEditorToMarkdown(content);
 
@@ -1457,6 +1488,452 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     );
   }
 
+  bool _shouldRenderAsHtml(String content) {
+    final trimmed = content.trim();
+    return (trimmed.contains('<') && trimmed.contains('>')) ||
+        _looksLikeTabularPlainText(trimmed) ||
+        RegExp(r'!\[.*?\]\(.*?\)').hasMatch(trimmed);
+  }
+
+  bool _looksLikeTabularPlainText(String content) {
+    final lines = content
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    if (lines.length < 2) return false;
+
+    final tabRows = lines.where((line) => line.contains('\t')).toList();
+    if (tabRows.length < 2) return false;
+
+    final firstColumnCount = tabRows.first.split(RegExp(r'\t+')).length;
+    if (firstColumnCount < 2) return false;
+
+    return tabRows.take(4).every(
+      (row) => row.split(RegExp(r'\t+')).length == firstColumnCount,
+    );
+  }
+
+  Widget _buildHtmlFormattedContent(String content, {bool isAnswer = false}) {
+    final processedContent = _prepareHtmlContentForRendering(content);
+    final textColor =
+        isAnswer ? const Color(0xFF10B981) : const Color(0xFF333333);
+
+    return Html(
+      data: processedContent,
+      shrinkWrap: true,
+      extensions: [
+        TagExtension(
+          tagsToExtend: {'pre'},
+          builder: (context) {
+            final rawHtml = context.innerHtml;
+            final language = _extractCodeLanguageFromHtml(rawHtml);
+            final codeContent = _extractCodeTextFromHtml(rawHtml);
+            if (codeContent.trim().isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return _buildCodeBlock(codeContent, language);
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'code'},
+          builder: (context) {
+            final rawHtml = context.innerHtml;
+            if (rawHtml.contains('\n')) {
+              final language = _extractCodeLanguageFromHtml(rawHtml);
+              final codeContent = _extractCodeTextFromHtml(rawHtml);
+              if (codeContent.trim().isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return _buildCodeBlock(codeContent, language);
+            }
+
+            final inlineCode = _decodeHtmlEntities(
+              rawHtml.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
+            );
+            if (inlineCode.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return _buildInlineCode('`$inlineCode`');
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'img'},
+          builder: (context) {
+            final src = context.attributes['src'] ?? '';
+            final alt = context.attributes['alt'] ?? '';
+            return _buildImageFromSource(src, altText: alt);
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'flutter-table'},
+          builder: (context) {
+            final encodedData = context.attributes['data'];
+            if (encodedData == null || encodedData.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            try {
+              final tableData =
+                  jsonDecode(Uri.decodeComponent(encodedData))
+                      as Map<String, dynamic>;
+              final hasHeader = tableData['hasHeader'] == true;
+              final rows = (tableData['rows'] as List<dynamic>)
+                  .map(
+                    (row) => (row as List<dynamic>)
+                        .map((cell) => cell.toString())
+                        .toList(),
+                  )
+                  .toList();
+              return _buildHtmlTable(rows, hasHeader: hasHeader);
+            } catch (e) {
+              return Container(
+                padding: const EdgeInsets.all(12),
+                color: Colors.red.shade50,
+                child: Text('Table render error: $e'),
+              );
+            }
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'tex-inline'},
+          builder: (context) {
+            final expression = _decodeHtmlEntities(context.innerHtml.trim());
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _buildMathWidget(expression, isInline: true),
+            );
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'tex-block'},
+          builder: (context) {
+            final expression = _decodeHtmlEntities(context.innerHtml.trim());
+            return _buildMathBlock(expression);
+          },
+        ),
+      ],
+      style: {
+        'html': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+        ),
+        'body': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          color: textColor,
+          fontSize: FontSize(isAnswer ? 16 : 14),
+          lineHeight: LineHeight(1.6),
+        ),
+        'p': Style(
+          margin: Margins.only(bottom: 14),
+          color: textColor,
+          fontSize: FontSize(isAnswer ? 16 : 14),
+          lineHeight: LineHeight(1.6),
+        ),
+        'div': Style(
+          margin: Margins.only(bottom: 8),
+          color: textColor,
+          fontSize: FontSize(isAnswer ? 16 : 14),
+          lineHeight: LineHeight(1.6),
+        ),
+        'span': Style(
+          color: textColor,
+          fontSize: FontSize(isAnswer ? 16 : 14),
+          lineHeight: LineHeight(1.6),
+        ),
+        'strong': Style(fontWeight: FontWeight.w700, color: textColor),
+        'b': Style(fontWeight: FontWeight.w700, color: textColor),
+        'em': Style(fontStyle: FontStyle.italic, color: textColor),
+        'i': Style(fontStyle: FontStyle.italic, color: textColor),
+        'u': Style(textDecoration: TextDecoration.underline, color: textColor),
+        'h1': Style(
+          fontSize: FontSize(22),
+          fontWeight: FontWeight.bold,
+          margin: Margins.only(top: 16, bottom: 12),
+          color: const Color(0xFF1A1A2E),
+        ),
+        'h2': Style(
+          fontSize: FontSize(20),
+          fontWeight: FontWeight.bold,
+          margin: Margins.only(top: 14, bottom: 10),
+          color: const Color(0xFF1A1A2E),
+        ),
+        'h3': Style(
+          fontSize: FontSize(18),
+          fontWeight: FontWeight.w700,
+          margin: Margins.only(top: 12, bottom: 8),
+          color: const Color(0xFF1A1A2E),
+        ),
+        'ul': Style(
+          margin: Margins.only(bottom: 12, left: 18),
+          padding: HtmlPaddings.zero,
+        ),
+        'ol': Style(
+          margin: Margins.only(bottom: 12, left: 18),
+          padding: HtmlPaddings.zero,
+        ),
+        'li': Style(
+          color: textColor,
+          fontSize: FontSize(isAnswer ? 16 : 14),
+          lineHeight: LineHeight(1.6),
+          margin: Margins.only(bottom: 6),
+        ),
+        'img': Style(
+          margin: Margins.only(top: 10, bottom: 10),
+        ),
+        'blockquote': Style(
+          padding: HtmlPaddings.only(left: 12, top: 8, bottom: 8),
+          margin: Margins.only(top: 8, bottom: 8),
+          border: Border(
+            left: BorderSide(color: Colors.blue.shade200, width: 4),
+          ),
+          backgroundColor: Colors.blue.shade50,
+        ),
+      },
+    );
+  }
+
+  String _prepareHtmlContentForRendering(String content) {
+    String processed = content.trim();
+
+    if (!_looksLikeHtml(processed) && _looksLikeTabularPlainText(processed)) {
+      processed = _convertPlainTextTableToHtml(processed);
+    } else if (!_looksLikeHtml(processed)) {
+      processed = processed
+          .split('\n\n')
+          .map((block) => '<p>${_escapeHtmlText(block).replaceAll('\n', '<br>')}</p>')
+          .join();
+    }
+
+    processed = _convertMarkdownImagesToHtml(processed);
+    processed = _normalizeCkEditorImageUrls(processed);
+    processed = _replaceCkEditorMathWithCustomTags(processed);
+    processed = _replaceDollarMathWithCustomTags(processed);
+    processed = _replaceHtmlTablesWithCustomTags(processed);
+
+    return '''
+<style>
+  img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+</style>
+$processed
+''';
+  }
+
+  bool _looksLikeHtml(String content) {
+    return RegExp(r'<[a-zA-Z][^>]*>').hasMatch(content);
+  }
+
+  String _extractCodeLanguageFromHtml(String rawHtml) {
+    final classMatch = RegExp(
+      r'class="([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(rawHtml);
+    if (classMatch == null) return '';
+
+    final classes = classMatch.group(1)?.split(RegExp(r'\s+')) ?? const [];
+    for (final cls in classes) {
+      if (cls.startsWith('language-')) {
+        return cls.replaceFirst('language-', '').trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _extractCodeTextFromHtml(String rawHtml) {
+    final stripped = rawHtml
+        .replaceAll(RegExp(r'</?(pre|code)[^>]*>', caseSensitive: false), '')
+        .replaceAll('<br>', '\n')
+        .replaceAll('<br/>', '\n')
+        .replaceAll('<br />', '\n')
+        .replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]*>'), '');
+
+    return _decodeHtmlEntities(stripped).trimRight();
+  }
+
+  String _convertPlainTextTableToHtml(String content) {
+    final lines = content
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    if (lines.isEmpty) return content;
+
+    final rows = lines
+        .map((line) => line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList())
+        .toList();
+
+    final buffer = StringBuffer('<table><tbody>');
+    for (final row in rows) {
+      buffer.write('<tr>');
+      for (final cell in row) {
+        buffer.write('<td>${_escapeHtmlText(cell)}</td>');
+      }
+      buffer.write('</tr>');
+    }
+    buffer.write('</tbody></table>');
+    return buffer.toString();
+  }
+
+  String _normalizeCkEditorImageUrls(String htmlContent) {
+    return htmlContent.replaceAllMapped(
+      RegExp(r'<img([^>]*?)src="([^"]*)"([^>]*)>', caseSensitive: false),
+      (match) {
+        final before = match.group(1) ?? '';
+        final src = match.group(2) ?? '';
+        final after = match.group(3) ?? '';
+        final normalizedUrl = _normalizeImageUrl(src);
+        return '<img$before src="$normalizedUrl"$after>';
+      },
+    );
+  }
+
+  String _convertMarkdownImagesToHtml(String content) {
+    return content.replaceAllMapped(RegExp(r'!\[(.*?)\]\((.*?)\)'), (match) {
+      final alt = _escapeHtmlText(match.group(1) ?? '');
+      final src = _normalizeImageUrl(match.group(2) ?? '');
+      return '<img src="$src" alt="$alt" />';
+    });
+  }
+
+  String _normalizeImageUrl(String src) {
+    if (src.isEmpty) return src;
+    if (_offlineDownloadedImageMap.containsKey(src)) {
+      return _offlineDownloadedImageMap[src]!;
+    }
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      return _offlineDownloadedImageMap[src] ?? src;
+    }
+
+    final baseUrl = ApiEndpoints.baseUrl;
+    String imageUrl;
+
+    if (src.startsWith('/')) {
+      imageUrl = '$baseUrl$src';
+    } else if (src.startsWith('media/') || src.startsWith('/media/')) {
+      imageUrl = src.startsWith('media/') ? '$baseUrl/$src' : '$baseUrl$src';
+    } else if (src.startsWith('uploads/')) {
+      imageUrl = '$baseUrl/media/$src';
+    } else {
+      imageUrl = '$baseUrl/media/$src';
+    }
+
+    imageUrl = imageUrl.replaceAll('//media/', '/media/');
+    imageUrl = imageUrl.replaceAll(':/', '://');
+    return _offlineDownloadedImageMap[imageUrl] ?? imageUrl;
+  }
+
+  String _replaceCkEditorMathWithCustomTags(String htmlContent) {
+    String result = htmlContent;
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<span[^>]*class="[^"]*math-tex[^"]*"[^>]*>(.*?)</span>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) => '<tex-inline>${match.group(1) ?? ''}</tex-inline>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<script[^>]*type="math/tex; mode=display"[^>]*>(.*?)</script>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) => '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<script[^>]*type="math/tex"[^>]*>(.*?)</script>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) => '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+    );
+
+    return result;
+  }
+
+  String _replaceDollarMathWithCustomTags(String content) {
+    String result = content;
+
+    result = result.replaceAllMapped(
+      RegExp(r'\$\$(.+?)\$\$', dotAll: true),
+      (match) => '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(r'(?<!\$)\$([^\$]+?)\$(?!\$)', dotAll: true),
+      (match) => '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+    );
+
+    return result;
+  }
+
+  String _replaceHtmlTablesWithCustomTags(String htmlContent) {
+    return htmlContent.replaceAllMapped(
+      RegExp(
+        r'<table[^>]*>(.*?)</table>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (tableMatch) {
+        final tableInnerHtml = tableMatch.group(1) ?? '';
+        final rows = <List<String>>[];
+        bool hasHeader = false;
+
+        final rowMatches = RegExp(
+          r'<tr[^>]*>(.*?)</tr>',
+          caseSensitive: false,
+          dotAll: true,
+        ).allMatches(tableInnerHtml);
+
+        for (final rowMatch in rowMatches) {
+          final rowHtml = rowMatch.group(1) ?? '';
+          final cells = <String>[];
+
+          final cellMatches = RegExp(
+            r'<(th|td)[^>]*>(.*?)</\1>',
+            caseSensitive: false,
+            dotAll: true,
+          ).allMatches(rowHtml);
+
+          for (final cellMatch in cellMatches) {
+            final tag = (cellMatch.group(1) ?? '').toLowerCase();
+            if (tag == 'th') hasHeader = true;
+            cells.add((cellMatch.group(2) ?? '').trim());
+          }
+
+          if (cells.isNotEmpty) {
+            rows.add(cells);
+          }
+        }
+
+        if (rows.isEmpty) return '';
+
+        final encoded = Uri.encodeComponent(
+          jsonEncode({'hasHeader': hasHeader, 'rows': rows}),
+        );
+        return '<flutter-table data="$encoded"></flutter-table>';
+      },
+    );
+  }
+
+  String _escapeHtmlText(String text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+
   String _convertCkEditorToMarkdown(String htmlContent) {
     if (htmlContent.isEmpty) return '';
 
@@ -1466,6 +1943,12 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     print(
       '📝 Raw HTML: ${htmlContent.substring(0, min(200, htmlContent.length))}...',
     );
+
+    // 1. CRITICAL: First check if it's plain text (no HTML tags)
+    if (!result.contains('<') && !result.contains('>')) {
+      // It's already plain text, just decode entities
+      return _decodeHtmlEntities(result);
+    }
 
     // 1. Handle tables FIRST (important to do this before removing other tags)
     result = _convertHtmlTablesToMarkdown(result);
@@ -1829,6 +2312,16 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         continue;
       }
 
+      // Handle plain text tables where cells are separated with tabs
+      if (_isTabSeparatedTableStart(lines, i)) {
+        final tableLines = _extractTabSeparatedTableLines(lines, i);
+        if (tableLines.isNotEmpty) {
+          widgets.add(_buildPlainTextTable(tableLines));
+          i += tableLines.length - 1;
+        }
+        continue;
+      }
+
       // Handle math blocks with $$
       if (trimmedLine.startsWith(r'$$')) {
         if (!inMathBlock) {
@@ -1900,9 +2393,13 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         continue;
       }
 
-      // Handle images
-      if (_isImageLine(line)) {
-        widgets.add(_buildImage(line));
+      // Handle mixed text/image lines without dropping surrounding text
+      if (_containsImageMarkup(line)) {
+        if (_isStandaloneImageLine(line)) {
+          widgets.add(_buildImage(line.trim()));
+        } else {
+          widgets.addAll(_buildMixedContentLine(line, isAnswer: isAnswer));
+        }
         continue;
       }
 
@@ -2003,6 +2500,38 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     return tableLines;
   }
 
+  bool _isTabSeparatedTableStart(List<String> lines, int index) {
+    if (index >= lines.length) return false;
+    final current = lines[index].trim();
+    if (!current.contains('\t')) return false;
+    if (index + 1 >= lines.length) return false;
+
+    final next = lines[index + 1].trim();
+    if (!next.contains('\t')) return false;
+
+    final currentColumns = current.split(RegExp(r'\t+')).length;
+    final nextColumns = next.split(RegExp(r'\t+')).length;
+    return currentColumns >= 2 && currentColumns == nextColumns;
+  }
+
+  List<String> _extractTabSeparatedTableLines(List<String> lines, int startIndex) {
+    final tableLines = <String>[];
+    int? expectedColumns;
+
+    for (int i = startIndex; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (!line.contains('\t')) break;
+
+      final columns = line.split(RegExp(r'\t+')).length;
+      expectedColumns ??= columns;
+
+      if (columns != expectedColumns || columns < 2) break;
+      tableLines.add(line);
+    }
+
+    return tableLines;
+  }
+
   bool _containsInlineMath(String text) {
     final hasDollarMath =
         RegExp(r'[^\\]\$[^\$].*?[^\\]\$').hasMatch(text) ||
@@ -2016,20 +2545,31 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     return regex.hasMatch(line);
   }
 
-  bool _isImageLine(String line) {
+  bool _containsImageMarkup(String line) {
     final markdownImageRegex = RegExp(r'!\[.*?\]\(.*?\)');
     final htmlImageRegex = RegExp(
       r'<img[^>]*src="[^"]+"[^>]*>',
       caseSensitive: false,
     );
+
+    return markdownImageRegex.hasMatch(line) || htmlImageRegex.hasMatch(line);
+  }
+
+  bool _isStandaloneImageLine(String line) {
+    final trimmed = line.trim();
+    final markdownImageRegex = RegExp(r'^!\[.*?\]\(.*?\)$');
+    final htmlImageRegex = RegExp(
+      r'^<img[^>]*src="[^"]+"[^>]*>$',
+      caseSensitive: false,
+    );
     final urlRegex = RegExp(
-      r'\.(jpg|jpeg|png|gif|bmp|webp|svg)(\?.*)?$',
+      r'^https?://[^\s]+\.(jpg|jpeg|png|gif|bmp|webp|svg)(\?.*)?$',
       caseSensitive: false,
     );
 
-    return markdownImageRegex.hasMatch(line) ||
-        htmlImageRegex.hasMatch(line) ||
-        (line.trim().startsWith('http') && urlRegex.hasMatch(line));
+    return markdownImageRegex.hasMatch(trimmed) ||
+        htmlImageRegex.hasMatch(trimmed) ||
+        urlRegex.hasMatch(trimmed);
   }
 
   bool _isListItem(String line) {
@@ -2075,152 +2615,328 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     return paragraphLines.join('\n');
   }
 
+  List<Widget> _buildMixedContentLine(String line, {bool isAnswer = false}) {
+    final widgets = <Widget>[];
+    final markdownImageRegex = RegExp(r'!\[.*?\]\(.*?\)');
+    final matches = markdownImageRegex.allMatches(line).toList();
+
+    if (matches.isEmpty) {
+      widgets.add(_buildText(line, isAnswer: isAnswer));
+      return widgets;
+    }
+
+    int lastIndex = 0;
+
+    for (final match in matches) {
+      final beforeImage = line.substring(lastIndex, match.start).trim();
+      if (beforeImage.isNotEmpty) {
+        if (_containsInlineMath(beforeImage)) {
+          widgets.add(_buildInlineMathText(beforeImage, isAnswer: isAnswer));
+        } else {
+          widgets.add(_buildText(beforeImage, isAnswer: isAnswer));
+        }
+      }
+
+      widgets.add(_buildImage(match.group(0)!));
+      lastIndex = match.end;
+    }
+
+    final afterLastImage = line.substring(lastIndex).trim();
+    if (afterLastImage.isNotEmpty) {
+      if (_containsInlineMath(afterLastImage)) {
+        widgets.add(_buildInlineMathText(afterLastImage, isAnswer: isAnswer));
+      } else {
+        widgets.add(_buildText(afterLastImage, isAnswer: isAnswer));
+      }
+    }
+
+    return widgets;
+  }
+
   bool _isTableLine(String line) {
     return line.contains('|') &&
         line.split('|').where((p) => p.trim().isNotEmpty).length >= 2;
   }
 
-  // ========== WIDGET BUILDERS ==========
+  bool _isMarkdownSeparatorLine(String line) {
+    final trimmed = line.trim();
+    if (!trimmed.startsWith('|')) return false;
 
-  Widget _buildText(String text, {bool isAnswer = false}) {
-    if (_containsInlineMath(text)) {
-      return _buildInlineMathText(text, isAnswer: isAnswer);
-    }
-
-    // Handle bold (**text**) and italic (*text*)
-    final regex = RegExp(r'(\*\*.*?\*\*|\*.*?\*|~~.*?~~)');
-    final parts = text.split(regex);
-    final spans = <InlineSpan>[];
-
-    for (final part in parts) {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        final content = part.substring(2, part.length - 2);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: isAnswer
-                  ? const Color(0xFF10B981)
-                  : const Color(0xFF333333),
-            ),
-          ),
-        );
-      } else if (part.startsWith('*') &&
-          part.endsWith('*') &&
-          !part.startsWith('**')) {
-        final content = part.substring(1, part.length - 1);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: TextStyle(
-              fontStyle: FontStyle.italic,
-              color: isAnswer
-                  ? const Color(0xFF10B981)
-                  : const Color(0xFF333333),
-            ),
-          ),
-        );
-      } else if (part.startsWith('~~') && part.endsWith('~~')) {
-        final content = part.substring(2, part.length - 2);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: const TextStyle(
-              decoration: TextDecoration.lineThrough,
-              color: Color(0xFF666666),
-            ),
-          ),
-        );
-      } else {
-        spans.add(
-          TextSpan(
-            text: part,
-            style: TextStyle(
-              fontSize: isAnswer ? 16 : 14,
-              color: isAnswer
-                  ? const Color(0xFF10B981)
-                  : const Color(0xFF666666),
-              height: 1.6,
-            ),
-          ),
-        );
+    final parts = trimmed.split('|');
+    for (int i = 1; i < parts.length - 1; i++) {
+      final part = parts[i].trim();
+      if (part.isNotEmpty && !RegExp(r'^:?-+:?$').hasMatch(part)) {
+        return false;
       }
     }
 
-    return Padding(
+    return true;
+  }
+
+  // ========== WIDGET BUILDERS ==========
+
+  Widget _buildText(String text, {bool isAnswer = false}) {
+    return _buildRichTextBlock(
+      text,
+      isAnswer: isAnswer,
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SelectableText.rich(TextSpan(children: spans)),
     );
   }
 
-  Widget _buildParagraph(String text, {bool isAnswer = false}) {
-    if (_containsInlineMath(text)) {
-      return _buildInlineMathText(text, isAnswer: isAnswer);
-    }
+  Widget _buildRichTextBlock(
+    String text, {
+    bool isAnswer = false,
+    bool isHeader = false,
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+    EdgeInsetsGeometry padding = EdgeInsets.zero,
+  }) {
+    final resolvedStyle = TextStyle(
+      fontSize: fontSize ?? (isAnswer ? 16 : 14),
+      fontWeight: fontWeight ?? FontWeight.normal,
+      color:
+          color ??
+          (isAnswer ? const Color(0xFF10B981) : const Color(0xFF666666)),
+      height: 1.6,
+    );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: isAnswer ? 16 : 14,
-          color: isAnswer ? const Color(0xFF10B981) : const Color(0xFF666666),
-          height: 1.6,
+      padding: padding,
+      child: RichText(
+        text: TextSpan(
+          style: resolvedStyle,
+          children: _buildInlineSpans(
+            text,
+            baseStyle: resolvedStyle,
+            isAnswer: isAnswer,
+            isHeader: isHeader,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildInlineMathText(String text, {bool isAnswer = false}) {
-    final regex = RegExp(r'(\\\(.*?\\\)|\$.*?(?<!\\)\$)|([^$\\]+)');
-    final matches = regex.allMatches(text);
+  List<InlineSpan> _buildInlineSpans(
+    String text, {
+    required TextStyle baseStyle,
+    bool isAnswer = false,
+    bool isHeader = false,
+  }) {
     final spans = <InlineSpan>[];
+    int index = 0;
 
-    for (final match in matches) {
-      final matchedText = match.group(0)!;
+    while (index < text.length) {
+      if (text.startsWith(r'\(', index)) {
+        final end = text.indexOf(r'\)', index + 2);
+        if (end != -1) {
+          final mathContent = text.substring(index + 2, end);
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: _buildMathWidget(mathContent, isInline: true),
+              ),
+            ),
+          );
+          index = end + 2;
+          continue;
+        }
+      }
 
-      if (matchedText.startsWith(r'\(') && matchedText.endsWith(r'\)')) {
-        final mathContent = matchedText.substring(2, matchedText.length - 2);
-        spans.add(
-          WidgetSpan(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _buildMathWidget(mathContent, isInline: true),
+      if (text[index] == r'$') {
+        final end = _findClosingDollar(text, index + 1);
+        if (end != -1) {
+          final mathContent = text.substring(index + 1, end);
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: _buildMathWidget(mathContent, isInline: true),
+              ),
             ),
-          ),
-        );
-      } else if (matchedText.startsWith('\$') &&
-          matchedText.endsWith('\$') &&
-          matchedText.length > 2) {
-        final mathContent = matchedText.substring(1, matchedText.length - 1);
-        spans.add(
-          WidgetSpan(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _buildMathWidget(mathContent, isInline: true),
+          );
+          index = end + 1;
+          continue;
+        }
+      }
+
+      if (text.startsWith('**', index) || text.startsWith('__', index)) {
+        final marker = text.substring(index, index + 2);
+        final end = text.indexOf(marker, index + 2);
+        if (end != -1) {
+          final content = text.substring(index + 2, end);
+          spans.add(
+            TextSpan(
+              text: content,
+              style: baseStyle.copyWith(fontWeight: FontWeight.bold),
             ),
-          ),
-        );
-      } else {
-        spans.add(
-          TextSpan(
-            text: matchedText,
-            style: TextStyle(
-              fontSize: isAnswer ? 16 : 14,
-              color: isAnswer
-                  ? const Color(0xFF10B981)
-                  : const Color(0xFF666666),
-              height: 1.6,
+          );
+          index = end + 2;
+          continue;
+        }
+      }
+
+      if (text.startsWith('~~', index)) {
+        final end = text.indexOf('~~', index + 2);
+        if (end != -1) {
+          final content = text.substring(index + 2, end);
+          spans.add(
+            TextSpan(
+              text: content,
+              style: baseStyle.copyWith(
+                decoration: TextDecoration.lineThrough,
+              ),
             ),
-          ),
-        );
+          );
+          index = end + 2;
+          continue;
+        }
+      }
+
+      if (text[index] == '`') {
+        final end = text.indexOf('`', index + 1);
+        if (end != -1) {
+          final content = text.substring(index + 1, end);
+          spans.add(
+            TextSpan(
+              text: content,
+              style: baseStyle.copyWith(
+                backgroundColor: Colors.grey.shade200,
+                color: Colors.red.shade700,
+                fontFamily: 'RobotoMono',
+                fontSize: (baseStyle.fontSize ?? 14) - 1,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          );
+          index = end + 1;
+          continue;
+        }
+      }
+
+      if (text[index] == '[') {
+        final labelEnd = text.indexOf(']', index + 1);
+        if (labelEnd != -1 &&
+            labelEnd + 1 < text.length &&
+            text[labelEnd + 1] == '(') {
+          final urlEnd = text.indexOf(')', labelEnd + 2);
+          if (urlEnd != -1) {
+            final label = text.substring(index + 1, labelEnd);
+            spans.add(
+              TextSpan(
+                text: label,
+                style: baseStyle.copyWith(
+                  color: Colors.blue.shade700,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            );
+            index = urlEnd + 1;
+            continue;
+          }
+        }
+      }
+
+      if (text[index] == '*' || text[index] == '_') {
+        final marker = text[index];
+        final end = text.indexOf(marker, index + 1);
+        if (end != -1) {
+          final content = text.substring(index + 1, end);
+          spans.add(
+            TextSpan(
+              text: content,
+              style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+            ),
+          );
+          index = end + 1;
+          continue;
+        }
+      }
+
+      final nextToken = _findNextInlineTokenIndex(text, index + 1);
+      spans.add(
+        TextSpan(
+          text: text.substring(index, nextToken),
+          style: baseStyle,
+        ),
+      );
+      index = nextToken;
+    }
+
+    return spans;
+  }
+
+  int _findNextInlineTokenIndex(String text, int start) {
+    final tokenStarts = <int>[];
+    final tokens = [r'\(', r'$', '**', '__', '~~', '`', '[', '*', '_'];
+
+    for (final token in tokens) {
+      final tokenIndex = text.indexOf(token, start);
+      if (tokenIndex != -1) {
+        tokenStarts.add(tokenIndex);
       }
     }
 
-    return Padding(
+    if (tokenStarts.isEmpty) return text.length;
+    tokenStarts.sort();
+    return tokenStarts.first;
+  }
+
+  int _findClosingDollar(String text, int start) {
+    for (int i = start; i < text.length; i++) {
+      if (text[i] == r'$' && text[i - 1] != r'\') {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  Widget _buildInlineContent(
+    String text, {
+    bool isAnswer = false,
+    bool isHeader = false,
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+  }) {
+    final resolvedStyle = TextStyle(
+      fontSize: fontSize ?? (isAnswer ? 16 : 14),
+      fontWeight: fontWeight ?? FontWeight.normal,
+      color:
+          color ??
+          (isAnswer ? const Color(0xFF10B981) : const Color(0xFF666666)),
+      height: 1.5,
+    );
+
+    return RichText(
+      text: TextSpan(
+        style: resolvedStyle,
+        children: _buildInlineSpans(
+          text,
+          baseStyle: resolvedStyle,
+          isAnswer: isAnswer,
+          isHeader: isHeader,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParagraph(String text, {bool isAnswer = false}) {
+    return _buildRichTextBlock(
+      text,
+      isAnswer: isAnswer,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+    );
+  }
+
+  Widget _buildInlineMathText(String text, {bool isAnswer = false}) {
+    return _buildRichTextBlock(
+      text,
+      isAnswer: isAnswer,
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SelectableText.rich(TextSpan(children: spans)),
     );
   }
 
@@ -2234,7 +2950,10 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         border: Border.all(color: Colors.blue.shade200, width: 1),
       ),
       child: Center(
-        child: _buildMathWidget(mathContent.trim(), isInline: false),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: _buildMathWidget(mathContent.trim(), isInline: false),
+        ),
       ),
     );
   }
@@ -2246,36 +2965,42 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
 
     return Container(
       padding: EdgeInsets.all(isInline ? 4 : 0),
-      child: Math.tex(
-        cleanMath,
-        textStyle: TextStyle(
-          fontSize: isInline ? 14 : 16,
-          color: Colors.blue.shade900,
-        ),
-        onErrorFallback: (FlutterMathException e) {
-          print('Math rendering error: $e for expression: $cleanMath');
-          String simplifiedMath = mathContent
-              .replaceAll(r'\over', '/')
-              .replaceAll(r'\pm', '±')
-              .replaceAll(r'\sqrt', '√');
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Math.tex(
+          cleanMath,
+          textStyle: TextStyle(
+            fontSize: isInline ? 14 : 16,
+            color: Colors.blue.shade900,
+          ),
+          onErrorFallback: (FlutterMathException e) {
+            print('Math rendering error: $e for expression: $cleanMath');
+            String simplifiedMath = mathContent
+                .replaceAll(r'\over', '/')
+                .replaceAll(r'\pm', '±')
+                .replaceAll(r'\sqrt', '√');
 
-          return Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: Colors.orange.shade200),
-            ),
-            child: SelectableText(
-              simplifiedMath,
-              style: TextStyle(
-                fontFamily: 'RobotoMono',
-                color: Colors.orange.shade800,
-                fontSize: isInline ? 12 : 14,
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: SelectableText(
+                  simplifiedMath,
+                  style: TextStyle(
+                    fontFamily: 'RobotoMono',
+                    color: Colors.orange.shade800,
+                    fontSize: isInline ? 12 : 14,
+                  ),
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -2299,11 +3024,18 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     final displayLang = langMap[language] ?? language.toUpperCase();
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
+      margin: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey.shade700),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2339,41 +3071,67 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
                     ),
                   ],
                 ),
-                GestureDetector(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: code));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Code copied to clipboard'),
-                        backgroundColor: Colors.green,
-                        behavior: SnackBarBehavior.floating,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade800,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.content_copy, size: 14, color: Colors.white),
-                        SizedBox(width: 6),
-                        Text(
-                          'Copy',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade800,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${code.split('\n').length} lines',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 11,
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: code));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Code copied to clipboard'),
+                            backgroundColor: Colors.green,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade800,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.content_copy,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'Copy',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -2383,16 +3141,22 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Container(
-                padding: const EdgeInsets.only(right: 20),
+                constraints: BoxConstraints(
+                  minWidth: MediaQuery.of(context).size.width - 32,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: code.split('\n').asMap().entries.map((entry) {
                     final lineNumber = entry.key + 1;
                     final lineContent = entry.value;
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
+                    return Container(
+                      constraints: BoxConstraints(
+                        minWidth: MediaQuery.of(context).size.width - 32,
+                      ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           SizedBox(
                             width: 40,
@@ -2407,13 +3171,18 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
                             ),
                           ),
                           const SizedBox(width: 16),
-                          SelectableText(
-                            lineContent,
-                            style: const TextStyle(
-                              fontFamily: 'RobotoMono',
-                              fontSize: 13,
-                              color: Color(0xFFD4D4D4),
-                              height: 1.4,
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minWidth: MediaQuery.of(context).size.width - 120,
+                            ),
+                            child: SelectableText(
+                              lineContent,
+                              style: const TextStyle(
+                                fontFamily: 'RobotoMono',
+                                fontSize: 14,
+                                color: Color(0xFFD4D4D4),
+                                height: 1.4,
+                              ),
                             ),
                           ),
                         ],
@@ -2430,62 +3199,9 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   }
 
   Widget _buildInlineCode(String text) {
-    final regex = RegExp(r'`([^`]+)`');
-    final matches = regex.allMatches(text);
-
-    if (matches.isEmpty) {
-      return _buildText(text);
-    }
-
-    final spans = <TextSpan>[];
-    int lastIndex = 0;
-
-    for (final match in matches) {
-      if (match.start > lastIndex) {
-        spans.add(
-          TextSpan(
-            text: text.substring(lastIndex, match.start),
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF666666),
-              height: 1.6,
-            ),
-          ),
-        );
-      }
-
-      spans.add(
-        TextSpan(
-          text: match.group(1),
-          style: TextStyle(
-            backgroundColor: Colors.grey.shade200,
-            color: Colors.red.shade700,
-            fontFamily: 'RobotoMono',
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      );
-
-      lastIndex = match.end;
-    }
-
-    if (lastIndex < text.length) {
-      spans.add(
-        TextSpan(
-          text: text.substring(lastIndex),
-          style: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF666666),
-            height: 1.6,
-          ),
-        ),
-      );
-    }
-
-    return Padding(
+    return _buildRichTextBlock(
+      text,
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SelectableText.rich(TextSpan(children: spans)),
     );
   }
 
@@ -2511,135 +3227,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       }
 
       if (imageUrl.isNotEmpty) {
-        // Check if it's a Hive-stored image (for web offline)
-        if (imageUrl.startsWith('hive://')) {
-          final imageKey = imageUrl.replaceFirst('hive://', '');
-          print('🖼️ Loading Hive image with key: $imageKey');
-
-          return FutureBuilder<Uint8List?>(
-            future: _loadHiveImage(imageKey),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Container(
-                  height: 200,
-                  color: Colors.grey.shade100,
-                  child: const Center(child: CircularProgressIndicator()),
-                );
-              } else if (snapshot.hasError || snapshot.data == null) {
-                print('❌ Failed to load Hive image: ${snapshot.error}');
-                return _buildErrorImage('Hive image load failed');
-              } else {
-                return Container(
-                  margin: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.memory(
-                          snapshot.data!,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                      if (altText.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            altText,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF666666),
-                              fontStyle: FontStyle.italic,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              }
-            },
-          );
-        }
-        // Check if it's a local file path (for mobile/desktop offline)
-        else if (imageUrl.startsWith('/') && !imageUrl.startsWith('http')) {
-          print('🖼️ Loading local file image: $imageUrl');
-
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(imageUrl),
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      print('❌ Error loading local image: $error');
-                      return _buildErrorImage('Local image load failed');
-                    },
-                  ),
-                ),
-                if (altText.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      altText,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF666666),
-                        fontStyle: FontStyle.italic,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-              ],
-            ),
-          );
-        }
-        // It's a network URL
-        else {
-          // Clean up the URL first
-          String cleanUrl = imageUrl.replaceAll(RegExp(r'(?<!:)/{2,}'), '/');
-
-          print('🖼️ Loading network image: $cleanUrl');
-
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: cleanUrl,
-                    placeholder: (context, url) => Container(
-                      height: 200,
-                      color: Colors.grey.shade100,
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-                    errorWidget: (context, url, error) {
-                      print('❌ Error loading network image: $error, URL: $url');
-                      return _buildErrorImage('Network image load failed');
-                    },
-                    fit: BoxFit.contain,
-                  ),
-                ),
-                if (altText.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      altText,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF666666),
-                        fontStyle: FontStyle.italic,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-              ],
-            ),
-          );
-        }
+        return _buildImageFromSource(imageUrl, altText: altText);
       }
     } catch (e) {
       print('❌ Error in _buildImage: $e');
@@ -2647,6 +3235,100 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     }
 
     return const SizedBox.shrink();
+  }
+
+  Widget _buildImageFromSource(String src, {String altText = ''}) {
+    if (src.isEmpty) return const SizedBox.shrink();
+
+    final imageUrl = _normalizeImageUrl(src);
+
+    if (imageUrl.startsWith('hive://')) {
+      final imageKey = imageUrl.replaceFirst('hive://', '');
+      print('🖼️ Loading Hive image with key: $imageKey');
+
+      return FutureBuilder<Uint8List?>(
+        future: _loadHiveImage(imageKey),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              height: 200,
+              color: Colors.grey.shade100,
+              child: const Center(child: CircularProgressIndicator()),
+            );
+          } else if (snapshot.hasError || snapshot.data == null) {
+            print('❌ Failed to load Hive image: ${snapshot.error}');
+            return _buildErrorImage('Hive image load failed');
+          }
+
+          return _buildImageContainer(
+            image: Image.memory(snapshot.data!, fit: BoxFit.contain),
+            altText: altText,
+          );
+        },
+      );
+    }
+
+    if (imageUrl.startsWith('/') && !imageUrl.startsWith('http')) {
+      print('🖼️ Loading local file image: $imageUrl');
+      return _buildImageContainer(
+        image: Image.file(
+          File(imageUrl),
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            print('❌ Error loading local image: $error');
+            return _buildErrorImage('Local image load failed');
+          },
+        ),
+        altText: altText,
+      );
+    }
+
+    final cleanUrl = imageUrl.replaceAll(RegExp(r'(?<!:)/{2,}'), '/');
+    print('🖼️ Loading network image: $cleanUrl');
+
+    return _buildImageContainer(
+      image: CachedNetworkImage(
+        imageUrl: cleanUrl,
+        placeholder: (context, url) => Container(
+          height: 200,
+          color: Colors.grey.shade100,
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+        errorWidget: (context, url, error) {
+          print('❌ Error loading network image: $error, URL: $url');
+          return _buildErrorImage('Network image load failed');
+        },
+        fit: BoxFit.contain,
+      ),
+      altText: altText,
+    );
+  }
+
+  Widget _buildImageContainer({required Widget image, String altText = ''}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: image,
+          ),
+          if (altText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                altText,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF666666),
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _buildErrorImage(String message) {
@@ -2715,13 +3397,12 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
 
     return Padding(
       padding: padding,
-      child: SelectableText(
+      child: _buildInlineContent(
         text,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-          color: color,
-        ),
+        isHeader: true,
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
       ),
     );
   }
@@ -2788,64 +3469,17 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       final lines = tableMarkdown.trim().split('\n');
       if (lines.length < 2) return Container();
 
-      // Parse header
-      final headerRow = lines[0];
-      final headers = _parseTableRow(headerRow);
+      final hasHeader =
+          lines.length > 1 && _isMarkdownSeparatorLine(lines[1]);
+      final rows = <List<String>>[];
 
-      // Parse data rows
-      final dataRows = <List<Widget>>[];
-      for (int i = 2; i < lines.length; i++) {
-        if (lines[i].trim().isNotEmpty) {
-          final cells = _parseTableRow(lines[i]);
-          final cellWidgets = cells.map((cell) {
-            return Container(
-              constraints: const BoxConstraints(maxWidth: 150),
-              child: _buildTableCellContent(cell),
-            );
-          }).toList();
-          dataRows.add(cellWidgets);
-        }
+      for (int i = 0; i < lines.length; i++) {
+        if (hasHeader && i == 1) continue;
+        if (lines[i].trim().isEmpty) continue;
+        rows.add(_parseTableRow(lines[i]));
       }
 
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Container(
-            constraints: BoxConstraints(minWidth: headers.length * 150),
-            child: DataTable(
-              columnSpacing: 24,
-              horizontalMargin: 16,
-              headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
-              dataRowColor: MaterialStateProperty.all(Colors.white),
-              columns: headers.map((header) {
-                return DataColumn(
-                  label: Container(
-                    constraints: const BoxConstraints(maxWidth: 150),
-                    child: _buildTableCellContent(header, isHeader: true),
-                  ),
-                );
-              }).toList(),
-              rows: dataRows.map((rowCells) {
-                return DataRow(
-                  cells: rowCells.map((cellWidget) {
-                    return DataCell(
-                      Container(
-                        constraints: const BoxConstraints(maxWidth: 150),
-                        child: cellWidget,
-                      ),
-                    );
-                  }).toList(),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-      );
+      return _buildTable(rows, hasHeader: hasHeader);
     } catch (e) {
       print('Error rendering table: $e');
       return Container(
@@ -2859,6 +3493,183 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   List<String> _parseTableRow(String row) {
     final cleanRow = row.trim().replaceAll(RegExp(r'^\||\|$'), '');
     return cleanRow.split('|').map((cell) => cell.trim()).toList();
+  }
+
+  Widget _buildPlainTextTable(List<String> tableLines) {
+    final rows = tableLines
+        .map((line) => line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList())
+        .toList();
+
+    return _buildTable(rows, hasHeader: false);
+  }
+
+  Widget _buildHtmlTable(List<List<String>> rows, {bool hasHeader = false}) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    final normalizedRows = rows.map((row) => List<String>.from(row)).toList();
+    final columnCount = normalizedRows
+        .map((row) => row.length)
+        .fold<int>(0, (maxColumns, rowLength) => max(maxColumns, rowLength));
+
+    for (final row in normalizedRows) {
+      while (row.length < columnCount) {
+        row.add('');
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: columnCount * 200),
+          child: Table(
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            border: TableBorder.symmetric(
+              inside: BorderSide(color: Colors.grey.shade300),
+            ),
+            columnWidths: {
+              for (int i = 0; i < columnCount; i++) i: const IntrinsicColumnWidth(),
+            },
+            children: normalizedRows.asMap().entries.map((entry) {
+              final rowIndex = entry.key;
+              final row = entry.value;
+              final isHeaderRow = hasHeader && rowIndex == 0;
+
+              return TableRow(
+                decoration: BoxDecoration(
+                  color: isHeaderRow ? Colors.blue.shade50 : Colors.white,
+                ),
+                children: row.map((cellHtml) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: _buildHtmlTableCell(
+                      cellHtml,
+                      isHeader: isHeaderRow,
+                    ),
+                  );
+                }).toList(),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHtmlTableCell(String cellHtml, {bool isHeader = false}) {
+    final processedCellHtml = _replaceDollarMathWithCustomTags(
+      _replaceCkEditorMathWithCustomTags(
+        _normalizeCkEditorImageUrls(_convertMarkdownImagesToHtml(cellHtml)),
+      ),
+    );
+
+    return Html(
+      data: processedCellHtml,
+      shrinkWrap: true,
+      extensions: [
+        TagExtension(
+          tagsToExtend: {'tex-inline'},
+          builder: (context) => _buildMathWidget(
+            _decodeHtmlEntities(context.innerHtml.trim()),
+            isInline: true,
+          ),
+        ),
+        TagExtension(
+          tagsToExtend: {'tex-block'},
+          builder: (context) => _buildMathBlock(
+            _decodeHtmlEntities(context.innerHtml.trim()),
+          ),
+        ),
+      ],
+      style: {
+        'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+        'body': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          color: Colors.black87,
+          fontSize: FontSize(isHeader ? 14 : 13),
+          fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+          lineHeight: LineHeight(1.5),
+        ),
+        'p': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+        'div': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+        'strong': Style(fontWeight: FontWeight.bold),
+        'b': Style(fontWeight: FontWeight.bold),
+        'em': Style(fontStyle: FontStyle.italic),
+        'i': Style(fontStyle: FontStyle.italic),
+        'img': Style(margin: Margins.only(top: 6, bottom: 6)),
+      },
+    );
+  }
+
+  Widget _buildTable(List<List<String>> rows, {bool hasHeader = false}) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    final normalizedRows = rows.map((row) => List<String>.from(row)).toList();
+    final columnCount = normalizedRows
+        .map((row) => row.length)
+        .fold<int>(0, (maxColumns, rowLength) => max(maxColumns, rowLength));
+
+    for (final row in normalizedRows) {
+      while (row.length < columnCount) {
+        row.add('');
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: columnCount * 180),
+          child: Table(
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            border: TableBorder.symmetric(
+              inside: BorderSide(color: Colors.grey.shade300),
+            ),
+            columnWidths: {
+              for (int i = 0; i < columnCount; i++) i: const IntrinsicColumnWidth(),
+            },
+            children: normalizedRows.asMap().entries.map((entry) {
+              final rowIndex = entry.key;
+              final row = entry.value;
+              final isHeaderRow = hasHeader && rowIndex == 0;
+
+              return TableRow(
+                decoration: BoxDecoration(
+                  color: isHeaderRow ? Colors.blue.shade50 : Colors.white,
+                ),
+                children: row.map((cell) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: _buildTableCellContent(
+                      cell,
+                      isHeader: isHeaderRow,
+                    ),
+                  );
+                }).toList(),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
   }
 
   String _convertHtmlTablesToMarkdown(String html) {
@@ -2966,90 +3777,14 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   }
 
   Widget _buildTableCellContent(String cellContent, {bool isHeader = false}) {
-    if (_containsMath(cellContent)) {
-      return Container(
-        constraints: const BoxConstraints(maxWidth: 150),
-        child: _buildTableCellWithMath(cellContent, isHeader: isHeader),
-      );
-    }
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 200),
-      child: Text(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 240),
+      child: _buildInlineContent(
         cellContent,
-        style: TextStyle(
-          fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
-          fontSize: isHeader ? 14 : 13,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
-  Widget _buildTableCellWithMath(String cellContent, {bool isHeader = false}) {
-    final regex = RegExp(r'(\$.*?(?<!\\)\$)|([^$]+)');
-    final matches = regex.allMatches(cellContent);
-    final textSpans = <InlineSpan>[];
-
-    for (final match in matches) {
-      final matchedText = match.group(0)!;
-
-      if (matchedText.startsWith('\$') && matchedText.endsWith('\$')) {
-        final mathContent = matchedText.substring(1, matchedText.length - 1);
-        textSpans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _buildTableCellMathWidget(mathContent),
-            ),
-          ),
-        );
-      } else {
-        textSpans.add(
-          TextSpan(
-            text: matchedText,
-            style: TextStyle(
-              fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
-              fontSize: isHeader ? 14 : 13,
-            ),
-          ),
-        );
-      }
-    }
-
-    return RichText(
-      text: TextSpan(
-        children: textSpans,
-        style: TextStyle(fontSize: isHeader ? 14 : 13, color: Colors.black87),
-      ),
-    );
-  }
-
-  Widget _buildTableCellMathWidget(String mathContent) {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      child: Math.tex(
-        mathContent,
-        textStyle: const TextStyle(fontSize: 12),
-        onErrorFallback: (FlutterMathException e) {
-          return Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(2),
-              border: Border.all(color: Colors.orange.shade200),
-            ),
-            child: Text(
-              mathContent,
-              style: TextStyle(
-                fontFamily: 'RobotoMono',
-                fontSize: 10,
-                color: Colors.orange.shade800,
-              ),
-            ),
-          );
-        },
+        isHeader: isHeader,
+        fontSize: isHeader ? 14 : 13,
+        fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+        color: Colors.black87,
       ),
     );
   }
@@ -3065,6 +3800,29 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     return text.replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('\n', ' ').trim();
   }
 
+  // String _decodeHtmlEntities(String text) {
+  //   return text
+  //       .replaceAll('&nbsp;', ' ')
+  //       .replaceAll('&amp;', '&')
+  //       .replaceAll('&lt;', '<')
+  //       .replaceAll('&gt;', '>')
+  //       .replaceAll('&quot;', '"')
+  //       .replaceAll('&#39;', "'")
+  //       .replaceAll('&ldquo;', '"')
+  //       .replaceAll('&rdquo;', '"')
+  //       .replaceAll('&lsquo;', "'")
+  //       .replaceAll('&rsquo;', "'")
+  //       .replaceAll('&hellip;', '...')
+  //       .replaceAll('&mdash;', '—')
+  //       .replaceAll('&ndash;', '–')
+  //       .replaceAll('&copy;', '©')
+  //       .replaceAll('&reg;', '®')
+  //       .replaceAll('&trade;', '™')
+  //       .replaceAll('&times;', '×')
+  //       .replaceAll('&divide;', '÷')
+  //       .replaceAll('&plusmn;', '±');
+  // }
+
   String _decodeHtmlEntities(String text) {
     return text
         .replaceAll('&nbsp;', ' ')
@@ -3073,6 +3831,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')
         .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
         .replaceAll('&ldquo;', '"')
         .replaceAll('&rdquo;', '"')
         .replaceAll('&lsquo;', "'")
@@ -3085,8 +3844,16 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         .replaceAll('&trade;', '™')
         .replaceAll('&times;', '×')
         .replaceAll('&divide;', '÷')
-        .replaceAll('&plusmn;', '±');
+        .replaceAll('&plusmn;', '±')
+        .replaceAll('&frac12;', '½')
+        .replaceAll('&frac14;', '¼')
+        .replaceAll('&frac34;', '¾')
+        .replaceAll('&deg;', '°')
+        .replaceAll('&micro;', 'µ')
+        .replaceAll('&para;', '¶')
+        .replaceAll('&middot;', '·');
   }
+
 
   Widget _buildQuestionCard(int index) {
     final question = _questions[index];
@@ -3518,31 +4285,39 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
                           ),
 
                         // Solution Image
+                        // if (question.solutionImageUrl != null &&
+                        //     question.solutionImageUrl!.isNotEmpty)
+                        //   Padding(
+                        //     padding: const EdgeInsets.only(top: 8),
+                        //     child: ClipRRect(
+                        //       borderRadius: BorderRadius.circular(8),
+                        //       child: CachedNetworkImage(
+                        //         imageUrl: question.solutionImageUrl!,
+                        //         placeholder: (context, url) => Container(
+                        //           height: 150,
+                        //           color: Colors.grey.shade100,
+                        //           child: const Center(
+                        //             child: CircularProgressIndicator(),
+                        //           ),
+                        //         ),
+                        //         errorWidget: (context, url, error) => Container(
+                        //           height: 150,
+                        //           color: Colors.grey.shade100,
+                        //           child: const Center(
+                        //             child: Icon(Icons.error, color: Colors.red),
+                        //           ),
+                        //         ),
+                        //         fit: BoxFit.contain,
+                        //       ),
+                        //     ),
+                        //   ),
+
+                        // Solution Image
                         if (question.solutionImageUrl != null &&
                             question.solutionImageUrl!.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: CachedNetworkImage(
-                                imageUrl: question.solutionImageUrl!,
-                                placeholder: (context, url) => Container(
-                                  height: 150,
-                                  color: Colors.grey.shade100,
-                                  child: const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                ),
-                                errorWidget: (context, url, error) => Container(
-                                  height: 150,
-                                  color: Colors.grey.shade100,
-                                  child: const Center(
-                                    child: Icon(Icons.error, color: Colors.red),
-                                  ),
-                                ),
-                                fit: BoxFit.contain,
-                              ),
-                            ),
+                            child: _buildSolutionImage(question),
                           ),
                       ],
                     ),
@@ -3623,6 +4398,62 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         ),
       );
     }
+  }
+
+  Widget _buildSolutionImage(TestQuestion question) {
+    final imageUrl = question.solutionImageUrl!;
+
+    if (imageUrl.startsWith('hive://')) {
+      final imageKey = imageUrl.replaceFirst('hive://', '');
+      return FutureBuilder<Uint8List?>(
+        future: _loadHiveImage(imageKey),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              height: 150,
+              color: Colors.grey.shade100,
+              child: const Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasError || snapshot.data == null) {
+            return _buildErrorImage('Failed to load offline solution image');
+          }
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(snapshot.data!, fit: BoxFit.contain),
+          );
+        },
+      );
+    }
+
+    if (imageUrl.startsWith('/') && !imageUrl.startsWith('http')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(
+          File(imageUrl),
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) =>
+              _buildErrorImage('Failed to load local solution image'),
+        ),
+      );
+    }
+
+    // Network URL
+    final cleanUrl = imageUrl.replaceAll(RegExp(r'(?<!:)/{2,}'), '/');
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: CachedNetworkImage(
+        imageUrl: cleanUrl,
+        placeholder: (context, url) => Container(
+          height: 150,
+          color: Colors.grey.shade100,
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+        errorWidget: (context, url, error) =>
+            _buildErrorImage('Failed to load solution image'),
+        fit: BoxFit.contain,
+      ),
+    );
   }
 
   // Add this method for long press to show reason options

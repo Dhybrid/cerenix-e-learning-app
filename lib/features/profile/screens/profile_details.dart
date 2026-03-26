@@ -7,6 +7,7 @@ import '../../../core/network/api_service.dart';
 import '../../../core/constants/endpoints.dart';
 // ADD THIS IMPORT:
 import '../../../features/courses/models/course_models.dart';
+import '../../../core/services/event_bus.dart';
 
 class ProfileDetailsScreen extends StatefulWidget {
   const ProfileDetailsScreen({super.key});
@@ -244,6 +245,10 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
 
         // ADD THIS LINE: Refresh courses
         await _fetchUserCourses();
+
+        // BROADCAST THAT PROFILE WAS UPDATED
+        EventBusService.instance.fire(ProfileUpdatedEvent(_userData));
+        EventBusService.instance.fire(CoursesRefreshEvent());
 
         print('🔄 Refreshed all user data');
       }

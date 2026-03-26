@@ -18,6 +18,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
 import 'package:flutter_markdown_plus_latex/flutter_markdown_plus_latex.dart';
 import 'dart:math'; // ADD THIS IMPORT
+import 'package:flutter_html/flutter_html.dart';
 
 class LectureScreen extends StatefulWidget {
   final dynamic course;
@@ -1049,7 +1050,7 @@ class _LectureScreenState extends State<LectureScreen> {
     final courseColor = _getCourseColor(widget.course);
 
     return Scaffold(
-      backgroundColor: courseColor.withOpacity(0.05),
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           Column(
@@ -1816,180 +1817,778 @@ class _LectureScreenState extends State<LectureScreen> {
     );
   }
 
+  // Widget _buildContentCard(Topic topic, Color courseColor) {
+  //   return Material(
+  //     elevation: 4,
+  //     borderRadius: BorderRadius.circular(20),
+  //     child: Container(
+  //       width: double.infinity,
+  //       decoration: BoxDecoration(
+  //         color: Colors.white,
+  //         borderRadius: BorderRadius.circular(20),
+  //       ),
+  //       child: Padding(
+  //         padding: const EdgeInsets.all(25),
+  //         child: Column(
+  //           crossAxisAlignment: CrossAxisAlignment.start,
+  //           children: [
+  //             Text(
+  //               topic.title,
+  //               style: const TextStyle(
+  //                 fontSize: 20,
+  //                 fontWeight: FontWeight.bold,
+  //                 color: Color(0xFF333333),
+  //                 height: 1.3,
+  //               ),
+  //             ),
+  //             if (topic.description != null &&
+  //                 topic.description!.isNotEmpty) ...[
+  //               const SizedBox(height: 10),
+  //               Text(
+  //                 topic.description!,
+  //                 style: const TextStyle(
+  //                   fontSize: 16,
+  //                   color: Color(0xFF666666),
+  //                   fontStyle: FontStyle.italic,
+  //                 ),
+  //               ),
+  //             ],
+  //             const SizedBox(height: 15),
+
+  //             // Stats
+  //             Container(
+  //               padding: const EdgeInsets.all(16),
+  //               decoration: BoxDecoration(
+  //                 color: const Color(0xFFF8F9FA),
+  //                 borderRadius: BorderRadius.circular(12),
+  //               ),
+  //               child: Row(
+  //                 mainAxisAlignment: MainAxisAlignment.spaceAround,
+  //                 children: [
+  //                   if (topic.durationMinutes != null)
+  //                     _buildStatItem(
+  //                       Icons.schedule_rounded,
+  //                       '${topic.durationMinutes} min',
+  //                       'Duration',
+  //                     ),
+  //                   _buildStatItem(
+  //                     Icons.book_rounded,
+  //                     'Topic ${topic.order}',
+  //                     'Position',
+  //                   ),
+  //                   if (topic.completionQuestionText != null &&
+  //                       topic.completionQuestionText!.isNotEmpty)
+  //                     _buildStatItem(Icons.quiz_rounded, 'Quiz', 'Assessment'),
+  //                 ],
+  //               ),
+  //             ),
+  //             const SizedBox(height: 25),
+
+  //             // Content
+  //             if (topic.content != null && topic.content!.isNotEmpty)
+  //               _buildFormattedContent(topic.content!)
+  //             else
+  //               Text(
+  //                 'No detailed content available for this topic.',
+  //                 style: const TextStyle(
+  //                   fontSize: 16,
+  //                   color: Color(0xFF999999),
+  //                   fontStyle: FontStyle.italic,
+  //                 ),
+  //               ),
+  //           ],
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
+
   Widget _buildContentCard(Topic topic, Color courseColor) {
-    return Material(
-      elevation: 4,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(25),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                topic.title,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                  height: 1.3,
-                ),
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(25),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              topic.title,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF333333),
+                height: 1.3,
               ),
-              if (topic.description != null &&
-                  topic.description!.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
+            ),
+            if (topic.description != null && topic.description!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8F9FA),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE0E0E0)),
+                ),
+                child: Text(
                   topic.description!,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Color(0xFF666666),
                     fontStyle: FontStyle.italic,
+                    height: 1.5,
                   ),
                 ),
-              ],
-              const SizedBox(height: 15),
+              ),
+            ],
+            const SizedBox(height: 20),
 
-              // Stats
+            // Stats - make it more compact
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  if (topic.durationMinutes != null)
+                    _buildStatItem(
+                      Icons.schedule_rounded,
+                      '${topic.durationMinutes} min',
+                      'Duration',
+                    ),
+                  _buildStatItem(
+                    Icons.book_rounded,
+                    'Topic ${topic.order}',
+                    'Position',
+                  ),
+                  if (topic.completionQuestionText != null &&
+                      topic.completionQuestionText!.isNotEmpty)
+                    _buildStatItem(Icons.quiz_rounded, 'Quiz', 'Assessment'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 25),
+
+            // Content - with more space
+            if (topic.content != null && topic.content!.isNotEmpty)
               Container(
-                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: _buildFormattedContent(topic.content!),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8F9FA),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE0E0E0)),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    if (topic.durationMinutes != null)
-                      _buildStatItem(
-                        Icons.schedule_rounded,
-                        '${topic.durationMinutes} min',
-                        'Duration',
-                      ),
-                    _buildStatItem(
-                      Icons.book_rounded,
-                      'Topic ${topic.order}',
-                      'Position',
+                child: const Center(
+                  child: Text(
+                    'No detailed content available for this topic.',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF999999),
+                      fontStyle: FontStyle.italic,
                     ),
-                    if (topic.completionQuestionText != null &&
-                        topic.completionQuestionText!.isNotEmpty)
-                      _buildStatItem(Icons.quiz_rounded, 'Quiz', 'Assessment'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 25),
-
-              // Content
-              if (topic.content != null && topic.content!.isNotEmpty)
-                _buildFormattedContent(topic.content!)
-              else
-                Text(
-                  'No detailed content available for this topic.',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF999999),
-                    fontStyle: FontStyle.italic,
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
   }
+
+  // Widget _buildFormattedContent(String content) {
+  //   // Convert CKEditor HTML to clean markdown
+  //   final cleanContent = _convertCkEditorToMarkdown(content);
+
+  //   return Container(
+  //     constraints: BoxConstraints(
+  //       minHeight: 50, // Minimum height to avoid unconstrained errors
+  //     ),
+  //     child: SingleChildScrollView(
+  //       child: Column(
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: _parseContentForLecture(cleanContent),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _buildFormattedContent(String content) {
     // Convert CKEditor HTML to clean markdown
     final cleanContent = _convertCkEditorToMarkdown(content);
 
     return Container(
-      constraints: BoxConstraints(
-        minHeight: 50, // Minimum height to avoid unconstrained errors
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: _parseContentForLecture(cleanContent),
-        ),
+      width: double.infinity,
+      constraints: BoxConstraints(minHeight: 50),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _parseContentForLecture(cleanContent),
       ),
     );
   }
+
+  // String _convertCkEditorToMarkdown(String htmlContent) {
+  //   if (htmlContent.isEmpty) return '';
+
+  //   String result = htmlContent;
+
+  //   // Debug: Print raw HTML
+  //   print(
+  //     '📝 Raw HTML: ${htmlContent.substring(0, min(200, htmlContent.length))}...',
+  //   );
+
+  //   // 1. Handle tables FIRST (important to do this before removing other tags)
+  //   result = _convertHtmlTablesToMarkdown(result);
+
+  //   // 2. Convert math equations
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<span[^>]*class="math-tex"[^>]*>(.*?)</span>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final mathContent = match.group(1) ?? '';
+  //       // Clean math content
+  //       final cleanMath = mathContent
+  //           .replaceAll('&lt;', '<')
+  //           .replaceAll('&gt;', '>')
+  //           .replaceAll('&amp;', '&');
+  //       return '\$$cleanMath\$';
+  //     },
+  //   );
+
+  //   // 3. Handle MathJax/LaTeX blocks
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<script[^>]*type="math/tex"[^>]*>(.*?)</script>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final mathContent = match.group(1) ?? '';
+  //       return '\$\$$mathContent\$\$';
+  //     },
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<script[^>]*type="math/tex; mode=display"[^>]*>(.*?)</script>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final mathContent = match.group(1) ?? '';
+  //       return '\$\$$mathContent\$\$';
+  //     },
+  //   );
+
+  //   // 4. Convert code blocks
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<pre[^>]*>(.*?)</pre>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       final preContent = match.group(1) ?? '';
+  //       String codeContent = preContent;
+
+  //       // Extract language from class
+  //       String language = '';
+  //       final classMatch = RegExp(
+  //         r'class="([^"]*)"',
+  //       ).firstMatch(match.group(0) ?? '');
+  //       if (classMatch != null) {
+  //         final classes = classMatch.group(1)!.split(' ');
+  //         for (final cls in classes) {
+  //           if (cls.startsWith('language-')) {
+  //             language = cls.replaceFirst('language-', '');
+  //             break;
+  //           }
+  //         }
+  //       }
+
+  //       // Clean code content
+  //       codeContent = codeContent
+  //           .replaceAll('<code>', '')
+  //           .replaceAll('</code>', '')
+  //           .replaceAll('&lt;', '<')
+  //           .replaceAll('&gt;', '>')
+  //           .replaceAll('&amp;', '&')
+  //           .trim();
+
+  //       return '```$language\n$codeContent\n```';
+  //     },
+  //   );
+
+  //   // 5. Convert inline code
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<code[^>]*>(.*?)</code>', caseSensitive: false),
+  //     (match) {
+  //       final codeContent = match.group(1) ?? '';
+  //       final cleanCode = codeContent
+  //           .replaceAll('&lt;', '<')
+  //           .replaceAll('&gt;', '>')
+  //           .replaceAll('&amp;', '&');
+  //       return '`$cleanCode`';
+  //     },
+  //   );
+
+  //   // 6. Convert images with proper handling
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<img[^>]*>', caseSensitive: false),
+  //     (match) {
+  //       final imgTag = match.group(0)!;
+  //       String? src, alt;
+
+  //       // Extract src
+  //       final srcMatch = RegExp(r'src="([^"]*)"').firstMatch(imgTag);
+  //       if (srcMatch != null) src = srcMatch.group(1);
+
+  //       // Extract alt
+  //       final altMatch = RegExp(r'alt="([^"]*)"').firstMatch(imgTag);
+  //       if (altMatch != null) alt = altMatch.group(1);
+
+  //       // Extract title
+  //       final titleMatch = RegExp(r'title="([^"]*)"').firstMatch(imgTag);
+  //       final title = titleMatch?.group(1);
+
+  //       // if (src == null) return '';
+
+  //       // If no src, return empty
+  //       if (src == null || src.isEmpty) return '';
+
+  //       // Handle relative URLs
+  //       String imageUrl = src;
+
+  //       // Check if it's already a full URL
+  //       if (!src.startsWith('http://') && !src.startsWith('https://')) {
+  //         // It's a relative URL
+  //         if (src.startsWith('/')) {
+  //           // Path starts with /, append to base URL
+  //           final baseUrl = ApiEndpoints.baseUrl;
+  //           imageUrl = '$baseUrl$src';
+  //         } else if (src.startsWith('media/') || src.startsWith('/media/')) {
+  //           // Django media path
+  //           final baseUrl = ApiEndpoints.baseUrl;
+  //           if (src.startsWith('media/')) {
+  //             imageUrl = '$baseUrl/$src';
+  //           } else {
+  //             imageUrl = '$baseUrl$src';
+  //           }
+  //         } else if (src.startsWith('uploads/')) {
+  //           // CKEditor uploads path
+  //           final baseUrl = ApiEndpoints.baseUrl;
+  //           imageUrl = '$baseUrl/media/$src';
+  //         } else {
+  //           // Assume it's a relative path from media
+  //           final baseUrl = ApiEndpoints.baseUrl;
+  //           imageUrl = '$baseUrl/media/$src';
+  //         }
+  //       }
+
+  //       // Clean up any double slashes
+  //       imageUrl = imageUrl.replaceAll('//media/', '/media/');
+  //       imageUrl = imageUrl.replaceAll(':/', '://');
+
+  //       // Use title as alt text if alt is empty
+  //       final displayAlt = alt?.isNotEmpty == true ? alt : title ?? '';
+
+  //       print('🖼️ Image URL: $imageUrl');
+  //       print('🖼️ Alt text: $displayAlt');
+
+  //       return '![${displayAlt}]($imageUrl)';
+
+  //       // Handle relative URLs
+  //       // if (!src.startsWith('http') && !src.startsWith('/')) {
+  //       //   src = '/media/$src';
+  //       // }
+
+  //       // return '![${alt ?? title ?? ''}]($src)';
+  //     },
+  //   );
+
+  //   // 7. Convert headings
+  //   for (int i = 6; i >= 1; i--) {
+  //     result = result.replaceAllMapped(
+  //       RegExp(r'<h$i[^>]*>(.*?)</h$i>', caseSensitive: false, dotAll: true),
+  //       (match) {
+  //         final headingText = match.group(1) ?? '';
+  //         final cleanText = _cleanHtmlText(headingText);
+  //         final hashes = '#' * i;
+  //         return '$hashes $cleanText';
+  //       },
+  //     );
+  //   }
+
+  //   // 8. Convert lists
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<ul[^>]*>(.*?)</ul>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       String ulContent = match.group(1) ?? '';
+  //       ulContent = ulContent.replaceAllMapped(
+  //         RegExp(r'<li[^>]*>(.*?)</li>', caseSensitive: false, dotAll: true),
+  //         (liMatch) {
+  //           String liContent = liMatch.group(1) ?? '';
+  //           liContent = _cleanHtmlText(liContent);
+  //           return '- $liContent';
+  //         },
+  //       );
+  //       return ulContent;
+  //     },
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<ol[^>]*>(.*?)</ol>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       String olContent = match.group(1) ?? '';
+  //       int counter = 1;
+  //       olContent = olContent.replaceAllMapped(
+  //         RegExp(r'<li[^>]*>(.*?)</li>', caseSensitive: false, dotAll: true),
+  //         (liMatch) {
+  //           String liContent = liMatch.group(1) ?? '';
+  //           liContent = _cleanHtmlText(liContent);
+  //           final result = '$counter. $liContent';
+  //           counter++;
+  //           return result;
+  //         },
+  //       );
+  //       return olContent;
+  //     },
+  //   );
+
+  //   // 9. Convert paragraphs with proper spacing
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<p[^>]*>(.*?)</p>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       final pContent = match.group(1) ?? '';
+  //       final cleanText = _cleanHtmlText(pContent);
+  //       return '$cleanText\n\n';
+  //     },
+  //   );
+
+  //   // Handle bold with b tags
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<b>(.*?)</b>', caseSensitive: false, dotAll: true),
+  //     (match) => '**${match.group(1)}**',
+  //   );
+
+  //   // Handle italic
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<em>(.*?)</em>', caseSensitive: false, dotAll: true),
+  //     (match) => '*${match.group(1)}*',
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<i>(.*?)</i>', caseSensitive: false, dotAll: true),
+  //     (match) => '*${match.group(1)}*',
+  //   );
+
+  //   // 10. Convert formatting
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<strong[^>]*>\s*<em[^>]*>(.*?)</em>\s*</strong>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '***${_cleanHtmlText(content)}***';
+  //     },
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<em[^>]*>\s*<strong[^>]*>(.*?)</strong>\s*</em>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '***${_cleanHtmlText(content)}***';
+  //     },
+  //   );
+
+  //   // Handle bold with strong tags - IMPORTANT: Do this BEFORE removing all HTML tags
+  //   // result = result.replaceAllMapped(
+  //   //   RegExp(
+  //   //     r'<strong[^>]*>(.*?)</strong>',
+  //   //     caseSensitive: false,
+  //   //     dotAll: true,
+  //   //   ),
+  //   //   (match) {
+  //   //     final content = match.group(1) ?? '';
+  //   //     // Also handle any nested formatting inside
+  //   //     final cleanedContent = _cleanHtmlText(content);
+  //   //     return '**$cleanedContent**';
+  //   //   },
+  //   // );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<strong[^>]*>(.*?)</strong>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '**${_cleanHtmlText(content)}**';
+  //     },
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<b[^>]*>(.*?)</b>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '**${_cleanHtmlText(content)}**';
+  //     },
+  //   );
+
+  //   // Handle italic
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<em[^>]*>(.*?)</em>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '*${_cleanHtmlText(content)}*';
+  //     },
+  //   );
+
+  //   result = result.replaceAllMapped(
+  //     RegExp(r'<i[^>]*>(.*?)</i>', caseSensitive: false, dotAll: true),
+  //     (match) {
+  //       final content = match.group(1) ?? '';
+  //       return '*${_cleanHtmlText(content)}*';
+  //     },
+  //   );
+
+  //   // 11. Convert links
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       final href = match.group(1) ?? '';
+  //       final text = match.group(2) ?? '';
+  //       final cleanText = _cleanHtmlText(text);
+  //       return '[$cleanText]($href)';
+  //     },
+  //   );
+
+  //   // 12. Convert blockquotes
+  //   result = result.replaceAllMapped(
+  //     RegExp(
+  //       r'<blockquote[^>]*>(.*?)</blockquote>',
+  //       caseSensitive: false,
+  //       dotAll: true,
+  //     ),
+  //     (match) {
+  //       String quoteContent = match.group(1) ?? '';
+  //       quoteContent = _cleanHtmlText(quoteContent);
+  //       final lines = quoteContent.split('\n');
+  //       return lines.map((line) => '> $line').join('\n');
+  //     },
+  //   );
+
+  //   // 13. Remove remaining HTML tags but keep their content
+  //   result = result.replaceAll(RegExp(r'<[^>]*>'), '');
+
+  //   // 14. Decode HTML entities
+  //   result = _decodeHtmlEntities(result);
+
+  //   // 15. Clean up whitespace
+  //   result = result
+  //       .replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n')
+  //       .replaceAll(RegExp(r'[ \t]+'), ' ')
+  //       .trim();
+
+  //   print(
+  //     '📝 Converted Markdown: ${result.substring(0, min(200, result.length))}...',
+  //   );
+  //   return result;
+  // }
+
+  // $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
   String _convertCkEditorToMarkdown(String htmlContent) {
     if (htmlContent.isEmpty) return '';
 
     String result = htmlContent;
 
-    // Debug: Print raw HTML
-    print(
-      '📝 Raw HTML: ${htmlContent.substring(0, min(200, htmlContent.length))}...',
+    // ─── STEP 1: PROTECT MATH FIRST (before anything strips tags) ───────────────
+    final mathPlaceholders = <String, String>{};
+    int mathIndex = 0;
+
+    // PRE-STEP: Normalize backslashes — CKEditor sometimes escapes them as \\
+    // e.g. \\frac becomes \frac
+    result = result.replaceAll(r'\\frac', r'\frac');
+    result = result.replaceAll(r'\\sqrt', r'\sqrt');
+    result = result.replaceAll(r'\\times', r'\times');
+    result = result.replaceAll(r'\\div', r'\div');
+    result = result.replaceAll(r'\\cdot', r'\cdot');
+    result = result.replaceAll(r'\\sum', r'\sum');
+    result = result.replaceAll(r'\\int', r'\int');
+    result = result.replaceAll(r'\\infty', r'\infty');
+    result = result.replaceAll(r'\\alpha', r'\alpha');
+    result = result.replaceAll(r'\\beta', r'\beta');
+    result = result.replaceAll(r'\\gamma', r'\gamma');
+    result = result.replaceAll(r'\\delta', r'\delta');
+    result = result.replaceAll(r'\\theta', r'\theta');
+    result = result.replaceAll(r'\\pi', r'\pi');
+    result = result.replaceAll(r'\\sigma', r'\sigma');
+    result = result.replaceAll(r'\\omega', r'\omega');
+    result = result.replaceAll(r'\\lambda', r'\lambda');
+    result = result.replaceAll(r'\\mu', r'\mu');
+    result = result.replaceAll(r'\\pm', r'\pm');
+    result = result.replaceAll(r'\\leq', r'\leq');
+    result = result.replaceAll(r'\\geq', r'\geq');
+    result = result.replaceAll(r'\\neq', r'\neq');
+    result = result.replaceAll(r'\\approx', r'\approx');
+    result = result.replaceAll(r'\\left', r'\left');
+    result = result.replaceAll(r'\\right', r'\right');
+    result = result.replaceAll(r'\\text', r'\text');
+    result = result.replaceAll(r'\\vec', r'\vec');
+    result = result.replaceAll(r'\\hat', r'\hat');
+    result = result.replaceAll(r'\\bar', r'\bar');
+    result = result.replaceAll(r'\\dot', r'\dot');
+    result = result.replaceAll(r'\\lim', r'\lim');
+    result = result.replaceAll(r'\\log', r'\log');
+    result = result.replaceAll(r'\\ln', r'\ln');
+    result = result.replaceAll(r'\\sin', r'\sin');
+    result = result.replaceAll(r'\\cos', r'\cos');
+    result = result.replaceAll(r'\\tan', r'\tan');
+
+    // Auto-complete unclosed inline math: $\frac{...  → $\frac{...}$
+    result = result.replaceAllMapped(
+      RegExp(r'\$([^$\n]{1,300})$', multiLine: true),
+      (match) {
+        final inner = match.group(1) ?? '';
+        // Only auto-close if it looks like a math expression
+        if (inner.contains(r'\') ||
+            inner.contains('^') ||
+            inner.contains('_')) {
+          // Count braces to auto-close if needed
+          int openBraces = '{'.allMatches(inner).length;
+          int closeBraces = '}'.allMatches(inner).length;
+          final missingBraces = '}'.repeat(
+            openBraces - closeBraces > 0 ? openBraces - closeBraces : 0,
+          );
+          return '\$${inner}${missingBraces}\$';
+        }
+        return match.group(0)!;
+      },
     );
 
-    // 1. Handle tables FIRST (important to do this before removing other tags)
-    result = _convertHtmlTablesToMarkdown(result);
-
-    // 2. Convert math equations
+    // CKEditor math spans: <span class="math-tex">\(...\)</span> or \[...\]
     result = result.replaceAllMapped(
       RegExp(
-        r'<span[^>]*class="math-tex"[^>]*>(.*?)</span>',
+        r'<span[^>]*class="math-tex"[^>]*>([\s\S]*?)</span>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
-        final mathContent = match.group(1) ?? '';
-        // Clean math content
-        final cleanMath = mathContent
+        final key = '___MATH${mathIndex}___';
+        String inner = match.group(1) ?? '';
+        // Decode entities inside math before protecting
+        inner = inner
             .replaceAll('&lt;', '<')
             .replaceAll('&gt;', '>')
-            .replaceAll('&amp;', '&');
-        return '\$$cleanMath\$';
+            .replaceAll('&amp;', '&')
+            .replaceAll('&#160;', ' ')
+            .replaceAll('&nbsp;', ' ')
+            .trim();
+        // Block math \[...\]
+        if (inner.startsWith(r'\[') || inner.contains(r'\[')) {
+          final extracted = inner
+              .replaceFirst(RegExp(r'^\s*\\\['), '')
+              .replaceFirst(RegExp(r'\\\]\s*$'), '')
+              .trim();
+          mathPlaceholders[key] = '\$\$$extracted\$\$';
+        } else {
+          // Inline math \(...\)
+          final extracted = inner
+              .replaceFirst(RegExp(r'^\s*\\\('), '')
+              .replaceFirst(RegExp(r'\\\)\s*$'), '')
+              .trim();
+          mathPlaceholders[key] = '\$$extracted\$';
+        }
+        mathIndex++;
+        return key;
       },
     );
 
-    // 3. Handle MathJax/LaTeX blocks
+    // MathJax script tags (display mode)
     result = result.replaceAllMapped(
       RegExp(
-        r'<script[^>]*type="math/tex"[^>]*>(.*?)</script>',
+        r'<script[^>]*type="math/tex;\s*mode=display"[^>]*>([\s\S]*?)</script>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
-        final mathContent = match.group(1) ?? '';
-        return '\$\$$mathContent\$\$';
+        final key = '___MATH${mathIndex}___';
+        mathPlaceholders[key] = '\$\$${match.group(1)?.trim()}\$\$';
+        mathIndex++;
+        return key;
       },
     );
 
+    // MathJax script tags (inline)
     result = result.replaceAllMapped(
       RegExp(
-        r'<script[^>]*type="math/tex; mode=display"[^>]*>(.*?)</script>',
+        r'<script[^>]*type="math/tex"[^>]*>([\s\S]*?)</script>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
-        final mathContent = match.group(1) ?? '';
-        return '\$\$$mathContent\$\$';
+        final key = '___MATH${mathIndex}___';
+        mathPlaceholders[key] = '\$${match.group(1)?.trim()}\$';
+        mathIndex++;
+        return key;
       },
     );
 
-    // 4. Convert code blocks
+    // Protect already-existing $$...$$ and $...$ in content
     result = result.replaceAllMapped(
-      RegExp(r'<pre[^>]*>(.*?)</pre>', caseSensitive: false, dotAll: true),
+      RegExp(r'\$\$[\s\S]*?\$\$|\$[^\$\n]{1,200}\$'),
       (match) {
-        final preContent = match.group(1) ?? '';
-        String codeContent = preContent;
+        final key = '___MATH${mathIndex}___';
+        mathPlaceholders[key] = match.group(0)!;
+        mathIndex++;
+        return key;
+      },
+    );
 
-        // Extract language from class
+    // ─── STEP 2: TABLES (before any tag stripping) ───────────────────────────────
+    result = _convertHtmlTablesToMarkdown(result);
+
+    // ─── STEP 3: CODE BLOCKS ─────────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(r'<pre[^>]*>([\s\S]*?)</pre>', caseSensitive: false, dotAll: true),
+      (match) {
+        final fullTag = match.group(0) ?? '';
+        String codeContent = match.group(1) ?? '';
+
+        // Extract language from class attribute
         String language = '';
-        final classMatch = RegExp(
-          r'class="([^"]*)"',
-        ).firstMatch(match.group(0) ?? '');
+        final classMatch = RegExp(r'class="([^"]*)"').firstMatch(fullTag);
         if (classMatch != null) {
-          final classes = classMatch.group(1)!.split(' ');
-          for (final cls in classes) {
+          for (final cls in classMatch.group(1)!.split(' ')) {
             if (cls.startsWith('language-')) {
               language = cls.replaceFirst('language-', '');
               break;
@@ -1997,248 +2596,322 @@ class _LectureScreenState extends State<LectureScreen> {
           }
         }
 
-        // Clean code content
+        // Strip inner <code> tags only
         codeContent = codeContent
-            .replaceAll('<code>', '')
+            .replaceAll(RegExp(r'<code[^>]*>'), '')
             .replaceAll('</code>', '')
             .replaceAll('&lt;', '<')
             .replaceAll('&gt;', '>')
             .replaceAll('&amp;', '&')
+            .replaceAll('&nbsp;', ' ')
             .trim();
 
-        return '```$language\n$codeContent\n```';
+        return '\n```$language\n$codeContent\n```\n';
       },
     );
 
-    // 5. Convert inline code
+    // ─── STEP 4: INLINE CODE ─────────────────────────────────────────────────────
     result = result.replaceAllMapped(
-      RegExp(r'<code[^>]*>(.*?)</code>', caseSensitive: false),
+      RegExp(r'<code[^>]*>(.*?)</code>', caseSensitive: false, dotAll: true),
       (match) {
-        final codeContent = match.group(1) ?? '';
-        final cleanCode = codeContent
+        final code = match.group(1) ?? '';
+        final clean = code
             .replaceAll('&lt;', '<')
             .replaceAll('&gt;', '>')
             .replaceAll('&amp;', '&');
-        return '`$cleanCode`';
+        return '`$clean`';
       },
     );
 
-    // 6. Convert images with proper handling
+    // ─── STEP 5: IMAGES ──────────────────────────────────────────────────────────
     result = result.replaceAllMapped(
       RegExp(r'<img[^>]*>', caseSensitive: false),
       (match) {
         final imgTag = match.group(0)!;
-        String? src, alt;
+        final src = RegExp(r'src="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
+        final alt = RegExp(r'alt="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
+        final title =
+            RegExp(r'title="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
 
-        // Extract src
-        final srcMatch = RegExp(r'src="([^"]*)"').firstMatch(imgTag);
-        if (srcMatch != null) src = srcMatch.group(1);
+        if (src.isEmpty) return '';
 
-        // Extract alt
-        final altMatch = RegExp(r'alt="([^"]*)"').firstMatch(imgTag);
-        if (altMatch != null) alt = altMatch.group(1);
-
-        // Extract title
-        final titleMatch = RegExp(r'title="([^"]*)"').firstMatch(imgTag);
-        final title = titleMatch?.group(1);
-
-        // if (src == null) return '';
-
-        // If no src, return empty
-        if (src == null || src.isEmpty) return '';
-
-        // Handle relative URLs
         String imageUrl = src;
-
-        // Check if it's already a full URL
         if (!src.startsWith('http://') && !src.startsWith('https://')) {
-          // It's a relative URL
+          final baseUrl = ApiEndpoints.baseUrl;
           if (src.startsWith('/')) {
-            // Path starts with /, append to base URL
-            final baseUrl = ApiEndpoints.baseUrl;
             imageUrl = '$baseUrl$src';
           } else if (src.startsWith('media/') || src.startsWith('/media/')) {
-            // Django media path
-            final baseUrl = ApiEndpoints.baseUrl;
-            if (src.startsWith('media/')) {
-              imageUrl = '$baseUrl/$src';
-            } else {
-              imageUrl = '$baseUrl$src';
-            }
+            imageUrl = src.startsWith('media/')
+                ? '$baseUrl/$src'
+                : '$baseUrl$src';
           } else if (src.startsWith('uploads/')) {
-            // CKEditor uploads path
-            final baseUrl = ApiEndpoints.baseUrl;
             imageUrl = '$baseUrl/media/$src';
           } else {
-            // Assume it's a relative path from media
-            final baseUrl = ApiEndpoints.baseUrl;
             imageUrl = '$baseUrl/media/$src';
           }
+          imageUrl = imageUrl
+              .replaceAll('//media/', '/media/')
+              .replaceAll(':/', '://');
         }
 
-        // Clean up any double slashes
-        imageUrl = imageUrl.replaceAll('//media/', '/media/');
-        imageUrl = imageUrl.replaceAll(':/', '://');
-
-        // Use title as alt text if alt is empty
-        final displayAlt = alt?.isNotEmpty == true ? alt : title ?? '';
-
-        print('🖼️ Image URL: $imageUrl');
-        print('🖼️ Alt text: $displayAlt');
-
-        return '![${displayAlt}]($imageUrl)';
-
-        // Handle relative URLs
-        // if (!src.startsWith('http') && !src.startsWith('/')) {
-        //   src = '/media/$src';
-        // }
-
-        // return '![${alt ?? title ?? ''}]($src)';
+        final displayAlt = alt.isNotEmpty ? alt : title;
+        return '\n![$displayAlt]($imageUrl)\n';
       },
     );
 
-    // 7. Convert headings
+    // ─── STEP 6: HEADINGS ────────────────────────────────────────────────────────
     for (int i = 6; i >= 1; i--) {
       result = result.replaceAllMapped(
-        RegExp(r'<h$i[^>]*>(.*?)</h$i>', caseSensitive: false, dotAll: true),
+        RegExp('<h$i[^>]*>(.*?)</h$i>', caseSensitive: false, dotAll: true),
         (match) {
-          final headingText = match.group(1) ?? '';
-          final cleanText = _cleanHtmlText(headingText);
-          final hashes = '#' * i;
-          return '$hashes $cleanText';
+          final text = _stripTagsKeepText(match.group(1) ?? '');
+          return '\n${'#' * i} $text\n';
         },
       );
     }
 
-    // 8. Convert lists
-    result = result.replaceAllMapped(
-      RegExp(r'<ul[^>]*>(.*?)</ul>', caseSensitive: false, dotAll: true),
-      (match) {
-        String ulContent = match.group(1) ?? '';
-        ulContent = ulContent.replaceAllMapped(
-          RegExp(r'<li[^>]*>(.*?)</li>', caseSensitive: false, dotAll: true),
-          (liMatch) {
-            String liContent = liMatch.group(1) ?? '';
-            liContent = _cleanHtmlText(liContent);
-            return '- $liContent';
-          },
-        );
-        return ulContent;
-      },
-    );
+    // // ─── STEP 7: BOLD + ITALIC COMBINED (must come before bold/italic alone) ─────
+    // result = result.replaceAllMapped(
+    //   RegExp(
+    //     r'<strong[^>]*>\s*<em[^>]*>([\s\S]*?)</em>\s*</strong>'
+    //     r'|<em[^>]*>\s*<strong[^>]*>([\s\S]*?)</strong>\s*</em>',
+    //     caseSensitive: false,
+    //     dotAll: true,
+    //   ),
+    //   (match) {
+    //     final content = _stripTagsKeepText(
+    //       match.group(1) ?? match.group(2) ?? '',
+    //     );
+    //     return '***$content***';
+    //   },
+    // );
 
-    result = result.replaceAllMapped(
-      RegExp(r'<ol[^>]*>(.*?)</ol>', caseSensitive: false, dotAll: true),
-      (match) {
-        String olContent = match.group(1) ?? '';
-        int counter = 1;
-        olContent = olContent.replaceAllMapped(
-          RegExp(r'<li[^>]*>(.*?)</li>', caseSensitive: false, dotAll: true),
-          (liMatch) {
-            String liContent = liMatch.group(1) ?? '';
-            liContent = _cleanHtmlText(liContent);
-            final result = '$counter. $liContent';
-            counter++;
-            return result;
-          },
-        );
-        return olContent;
-      },
-    );
-
-    // 9. Convert paragraphs with proper spacing
-    result = result.replaceAllMapped(
-      RegExp(r'<p[^>]*>(.*?)</p>', caseSensitive: false, dotAll: true),
-      (match) {
-        final pContent = match.group(1) ?? '';
-        final cleanText = _cleanHtmlText(pContent);
-        return '$cleanText\n\n';
-      },
-    );
-
-    // 10. Convert formatting
+    // ─── STEP 7: BOLD + ITALIC COMBINED ──────────────────────────────────────────
     result = result.replaceAllMapped(
       RegExp(
-        r'<strong[^>]*>(.*?)</strong>',
+        r'<strong[^>]*>\s*<em[^>]*>([\s\S]*?)</em>\s*</strong>'
+        r'|<em[^>]*>\s*<strong[^>]*>([\s\S]*?)</strong>\s*</em>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
-        final content = match.group(1) ?? '';
-        return '**${_cleanHtmlText(content)}**';
+        // Only strip actual HTML tags — leave math placeholders and text intact
+        final content = (match.group(1) ?? match.group(2) ?? '')
+            .replaceAll(RegExp(r'<[^>]*>'), '')
+            .trim();
+        return '***$content***';
       },
     );
 
-    result = result.replaceAllMapped(
-      RegExp(r'<b[^>]*>(.*?)</b>', caseSensitive: false, dotAll: true),
-      (match) {
-        final content = match.group(1) ?? '';
-        return '**${_cleanHtmlText(content)}**';
-      },
-    );
+    // // ─── STEP 8: BOLD ─────────────────────────────────────────────────────────────
+    // result = result.replaceAllMapped(
+    //   RegExp(
+    //     r'<strong[^>]*>([\s\S]*?)</strong>|<b[^>]*>([\s\S]*?)</b>',
+    //     caseSensitive: false,
+    //     dotAll: true,
+    //   ),
+    //   (match) {
+    //     final content = _stripTagsKeepText(
+    //       match.group(1) ?? match.group(2) ?? '',
+    //     );
+    //     return '**$content**';
+    //   },
+    // );
 
-    result = result.replaceAllMapped(
-      RegExp(r'<em[^>]*>(.*?)</em>', caseSensitive: false, dotAll: true),
-      (match) {
-        final content = match.group(1) ?? '';
-        return '*${_cleanHtmlText(content)}*';
-      },
-    );
-
-    result = result.replaceAllMapped(
-      RegExp(r'<i[^>]*>(.*?)</i>', caseSensitive: false, dotAll: true),
-      (match) {
-        final content = match.group(1) ?? '';
-        return '*${_cleanHtmlText(content)}*';
-      },
-    );
-
-    // 11. Convert links
+    // ─── STEP 8: BOLD ─────────────────────────────────────────────────────────────
     result = result.replaceAllMapped(
       RegExp(
-        r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+        r'<strong[^>]*>([\s\S]*?)</strong>|<b[^>]*>([\s\S]*?)</b>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) {
+        // Only strip actual HTML tags — leave math placeholders and text intact
+        final content = (match.group(1) ?? match.group(2) ?? '')
+            .replaceAll(RegExp(r'<[^>]*>'), '')
+            .trim();
+        return '**$content**';
+      },
+    );
+
+    // // ─── STEP 9: ITALIC ───────────────────────────────────────────────────────────
+    // result = result.replaceAllMapped(
+    //   RegExp(
+    //     r'<em[^>]*>([\s\S]*?)</em>|<i[^>]*>([\s\S]*?)</i>',
+    //     caseSensitive: false,
+    //     dotAll: true,
+    //   ),
+    //   (match) {
+    //     final content = _stripTagsKeepText(
+    //       match.group(1) ?? match.group(2) ?? '',
+    //     );
+    //     return '*$content*';
+    //   },
+    // );
+
+    // ─── STEP 9: ITALIC ───────────────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<em[^>]*>([\s\S]*?)</em>|<i[^>]*>([\s\S]*?)</i>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) {
+        // Only strip actual HTML tags — leave math placeholders and text intact
+        final content = (match.group(1) ?? match.group(2) ?? '')
+            .replaceAll(RegExp(r'<[^>]*>'), '')
+            .trim();
+        return '*$content*';
+      },
+    );
+    // ─── STEP 10: UNDERLINE (no markdown equivalent — just keep text) ─────────────
+    result = result.replaceAllMapped(
+      RegExp(r'<u[^>]*>([\s\S]*?)</u>', caseSensitive: false, dotAll: true),
+      (match) => _stripTagsKeepText(match.group(1) ?? ''),
+    );
+
+    // ─── STEP 11: STRIKETHROUGH ───────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<s[^>]*>([\s\S]*?)</s>|<del[^>]*>([\s\S]*?)</del>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) {
+        final content = _stripTagsKeepText(
+          match.group(1) ?? match.group(2) ?? '',
+        );
+        return '~~$content~~';
+      },
+    );
+
+    // ─── STEP 12: LINKS ───────────────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)</a>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
         final href = match.group(1) ?? '';
-        final text = match.group(2) ?? '';
-        final cleanText = _cleanHtmlText(text);
-        return '[$cleanText]($href)';
+        final text = _stripTagsKeepText(match.group(2) ?? '');
+        return '[$text]($href)';
       },
     );
 
-    // 12. Convert blockquotes
+    // ─── STEP 13: BLOCKQUOTES ─────────────────────────────────────────────────────
     result = result.replaceAllMapped(
       RegExp(
-        r'<blockquote[^>]*>(.*?)</blockquote>',
+        r'<blockquote[^>]*>([\s\S]*?)</blockquote>',
         caseSensitive: false,
         dotAll: true,
       ),
       (match) {
-        String quoteContent = match.group(1) ?? '';
-        quoteContent = _cleanHtmlText(quoteContent);
-        final lines = quoteContent.split('\n');
-        return lines.map((line) => '> $line').join('\n');
+        final content = _stripTagsKeepText(match.group(1) ?? '');
+        return content.split('\n').map((line) => '> $line').join('\n');
       },
     );
 
-    // 13. Remove remaining HTML tags but keep their content
+    // ─── STEP 14: UNORDERED LISTS ─────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(r'<ul[^>]*>([\s\S]*?)</ul>', caseSensitive: false, dotAll: true),
+      (match) {
+        String ul = match.group(1) ?? '';
+        ul = ul.replaceAllMapped(
+          RegExp(
+            r'<li[^>]*>([\s\S]*?)</li>',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          (li) {
+            final text = _stripTagsKeepText(li.group(1) ?? '').trim();
+            return '- $text\n';
+          },
+        );
+        return '\n$ul\n';
+      },
+    );
+
+    // ─── STEP 15: ORDERED LISTS ───────────────────────────────────────────────────
+    result = result.replaceAllMapped(
+      RegExp(r'<ol[^>]*>([\s\S]*?)</ol>', caseSensitive: false, dotAll: true),
+      (match) {
+        String ol = match.group(1) ?? '';
+        int counter = 1;
+        ol = ol.replaceAllMapped(
+          RegExp(
+            r'<li[^>]*>([\s\S]*?)</li>',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          (li) {
+            final text = _stripTagsKeepText(li.group(1) ?? '').trim();
+            final item = '$counter. $text\n';
+            counter++;
+            return item;
+          },
+        );
+        return '\n$ol\n';
+      },
+    );
+
+    // ─── STEP 16: PARAGRAPHS ──────────────────────────────────────────────────────
+    // Preserve CKEditor spacing — empty <p> = intentional blank line
+    result = result.replaceAllMapped(
+      RegExp(r'<p[^>]*>([\s\S]*?)</p>', caseSensitive: false, dotAll: true),
+      (match) {
+        final inner = match.group(1) ?? '';
+        final trimmed = inner.trim();
+        // Empty paragraph or just &nbsp; = blank line (CKEditor spacing intent)
+        if (trimmed.isEmpty ||
+            trimmed == '&nbsp;' ||
+            trimmed == '&#160;' ||
+            trimmed == '\u00a0') {
+          return '\n';
+        }
+        return '${inner.trim()}\n\n';
+      },
+    );
+
+    // ─── STEP 17: LINE BREAKS ─────────────────────────────────────────────────────
+    result = result.replaceAll(
+      RegExp(r'<br\s*/?>', caseSensitive: false),
+      '\n',
+    );
+
+    // ─── STEP 18: HORIZONTAL RULES ────────────────────────────────────────────────
+    result = result.replaceAll(
+      RegExp(r'<hr[^>]*>', caseSensitive: false),
+      '\n---\n',
+    );
+
+    // ─── STEP 19: STRIP ALL REMAINING HTML TAGS ───────────────────────────────────
+    // (divs, spans, figures, captions, etc. — keep their text content)
     result = result.replaceAll(RegExp(r'<[^>]*>'), '');
 
-    // 14. Decode HTML entities
+    // ─── STEP 20: DECODE HTML ENTITIES ───────────────────────────────────────────
     result = _decodeHtmlEntities(result);
 
-    // 15. Clean up whitespace
+    // ─── STEP 21: RESTORE PROTECTED MATH ─────────────────────────────────────────
+    mathPlaceholders.forEach((key, value) {
+      result = result.replaceAll(key, value);
+    });
+
+    // ─── STEP 22: CLEAN UP WHITESPACE ────────────────────────────────────────────
     result = result
-        .replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n')
-        .replaceAll(RegExp(r'[ \t]+'), ' ')
+        .replaceAll(RegExp(r'[ \t]+'), ' ') // collapse spaces/tabs
+        .replaceAll(RegExp(r'\n{4,}'), '\n\n\n') // max 3 consecutive newlines
+        .replaceAll(RegExp(r' \n'), '\n') // trailing spaces before newline
+        .replaceAll(RegExp(r'\n '), '\n') // leading spaces after newline
         .trim();
 
-    print(
-      '📝 Converted Markdown: ${result.substring(0, min(200, result.length))}...',
-    );
     return result;
+  }
+
+  // Helper: strips HTML tags only, keeps inner text intact
+  // Used during conversion steps before the final entity decode
+  String _stripTagsKeepText(String html) {
+    return html.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   }
 
   Widget _buildMarkdownTable(String tableMarkdown) {
@@ -2247,22 +2920,56 @@ class _LectureScreenState extends State<LectureScreen> {
       if (lines.length < 2) return Container();
 
       // Parse header
-      final headerRow = lines[0];
-      final headers = _parseTableRow(headerRow);
+      final headerRow = _parseTableRow(lines[0]);
+
+      // Check if there's a separator line (typically the second line with ---)
+      final hasSeparator = lines.length > 1 && lines[1].contains('---');
+      final dataStartIndex = hasSeparator ? 2 : 1;
 
       // Parse data rows
-      final dataRows = <List<Widget>>[];
-      for (int i = 2; i < lines.length; i++) {
+      final dataRows = <List<String>>[];
+      for (int i = dataStartIndex; i < lines.length; i++) {
         if (lines[i].trim().isNotEmpty) {
           final cells = _parseTableRow(lines[i]);
-          final cellWidgets = cells.map((cell) {
-            return Container(
-              constraints: BoxConstraints(maxWidth: 150), // Add constraint
-              child: _buildTableCellContent(cell),
-            );
-          }).toList();
-          dataRows.add(cellWidgets);
+          dataRows.add(cells);
         }
+      }
+
+      // Calculate column widths based on content
+      final columnCount = headerRow.length;
+      final columnWidths = List<double>.filled(columnCount, 0);
+
+      // Measure header widths
+      for (int col = 0; col < columnCount; col++) {
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: headerRow[col],
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        columnWidths[col] = textPainter.width + 32; // Add padding
+      }
+
+      // Measure data row widths
+      for (final row in dataRows) {
+        for (int col = 0; col < row.length && col < columnCount; col++) {
+          final textPainter = TextPainter(
+            text: TextSpan(
+              text: row[col],
+              style: const TextStyle(fontSize: 13),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          columnWidths[col] = max(columnWidths[col], textPainter.width + 32);
+        }
+      }
+
+      // Cap maximum width to prevent extremely wide columns
+      for (int col = 0; col < columnCount; col++) {
+        columnWidths[col] = min(columnWidths[col], 300.0);
       }
 
       return Container(
@@ -2274,34 +2981,70 @@ class _LectureScreenState extends State<LectureScreen> {
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Container(
-            constraints: BoxConstraints(
-              minWidth: headers.length * 150,
-            ), // Add min width
-            child: DataTable(
-              columnSpacing: 24,
-              horizontalMargin: 16,
-              headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
-              dataRowColor: MaterialStateProperty.all(Colors.white),
-              columns: headers.map((header) {
-                return DataColumn(
-                  label: Container(
-                    constraints: BoxConstraints(maxWidth: 150),
-                    child: _buildTableCellContent(header, isHeader: true),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header row
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 8,
                   ),
-                );
-              }).toList(),
-              rows: dataRows.map((rowCells) {
-                return DataRow(
-                  cells: rowCells.map((cellWidget) {
-                    return DataCell(
-                      Container(
-                        constraints: BoxConstraints(maxWidth: 150),
-                        child: cellWidget,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  child: Row(
+                    children: List.generate(columnCount, (col) {
+                      return Container(
+                        width: columnWidths[col],
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          headerRow[col],
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Color(0xFF333333),
+                          ),
+                          softWrap: true,
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+
+                // Data rows
+                ...dataRows.map((row) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade200),
                       ),
-                    );
-                  }).toList(),
-                );
-              }).toList(),
+                    ),
+                    child: Row(
+                      children: List.generate(columnCount, (col) {
+                        final cellContent = col < row.length ? row[col] : '';
+
+                        return Container(
+                          width: columnWidths[col],
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: _buildTableCellContent(cellContent),
+                        );
+                      }),
+                    ),
+                  );
+                }).toList(),
+              ],
             ),
           ),
         ),
@@ -2324,26 +3067,45 @@ class _LectureScreenState extends State<LectureScreen> {
     return 120;
   }
 
+  // Widget _buildTableCellContent(String cellContent, {bool isHeader = false}) {
+  //   // Check if cell contains math
+  //   if (_containsMath(cellContent)) {
+  //     return Container(
+  //       constraints: BoxConstraints(maxWidth: 150),
+  //       child: _buildTableCellWithMath(cellContent, isHeader: isHeader),
+  //     );
+  //   }
+
+  //   // Regular text cell
+  //   return Container(
+  //     constraints: BoxConstraints(maxWidth: 200), // Add constraint
+  //     child: Text(
+  //       cellContent,
+  //       style: TextStyle(
+  //         fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+  //         fontSize: isHeader ? 14 : 13,
+  //       ),
+  //       overflow: TextOverflow.ellipsis,
+  //     ),
+  //   );
+  // }
+
   Widget _buildTableCellContent(String cellContent, {bool isHeader = false}) {
     // Check if cell contains math
     if (_containsMath(cellContent)) {
-      return Container(
-        constraints: BoxConstraints(maxWidth: 150),
-        child: _buildTableCellWithMath(cellContent, isHeader: isHeader),
-      );
+      return _buildTableCellWithMath(cellContent, isHeader: isHeader);
     }
 
-    // Regular text cell
-    return Container(
-      constraints: BoxConstraints(maxWidth: 200), // Add constraint
-      child: Text(
-        cellContent,
-        style: TextStyle(
-          fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
-          fontSize: isHeader ? 14 : 13,
-        ),
-        overflow: TextOverflow.ellipsis,
+    // Regular text cell with word wrapping
+    return Text(
+      cellContent,
+      style: TextStyle(
+        fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+        fontSize: isHeader ? 14 : 13,
+        color: Colors.black87,
       ),
+      softWrap: true,
+      overflow: TextOverflow.visible, // Allow text to wrap
     );
   }
 
@@ -2618,11 +3380,27 @@ class _LectureScreenState extends State<LectureScreen> {
     return markdownRows.join('\n');
   }
 
+  // String _cleanHtmlText(String text) {
+  //   return text
+  //       .replaceAll(RegExp(r'<[^>]*>'), '') // Remove any remaining tags
+  //       .replaceAll('\n', ' ')
+  //       .trim();
+  // }
+
   String _cleanHtmlText(String text) {
-    return text
-        .replaceAll(RegExp(r'<[^>]*>'), '') // Remove any remaining tags
-        .replaceAll('\n', ' ')
-        .trim();
+    // Don't remove ** or * - they're markdown syntax
+    String result = text;
+
+    // Remove HTML tags but preserve their content
+    result = result.replaceAll(RegExp(r'<[^>]*>'), '');
+
+    // Decode HTML entities
+    result = _decodeHtmlEntities(result);
+
+    // Clean up whitespace but don't trim completely if it's part of formatting
+    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    return result;
   }
 
   String _decodeHtmlEntities(String text) {
@@ -3178,45 +3956,152 @@ class _LectureScreenState extends State<LectureScreen> {
     );
   }
 
+  // Widget _buildInlineMathText(String text) {
+  //   // Parse mixed text with inline math
+  //   final regex = RegExp(r'(\\\(.*?\\\)|\$.*?(?<!\\)\$)|([^$\\]+)');
+  //   final matches = regex.allMatches(text);
+
+  //   final spans = <InlineSpan>[];
+
+  //   for (final match in matches) {
+  //     final matchedText = match.group(0)!;
+
+  //     if (matchedText.startsWith(r'\(') && matchedText.endsWith(r'\)')) {
+  //       // LaTeX inline math
+  //       final mathContent = matchedText.substring(2, matchedText.length - 2);
+  //       spans.add(
+  //         WidgetSpan(
+  //           child: Padding(
+  //             padding: const EdgeInsets.symmetric(horizontal: 2),
+  //             child: _buildMathWidget(mathContent, isInline: true),
+  //           ),
+  //         ),
+  //       );
+  //     } else if (matchedText.startsWith('\$') &&
+  //         matchedText.endsWith('\$') &&
+  //         matchedText.length > 2) {
+  //       // Dollar sign inline math (ensure it's not just a single dollar sign)
+  //       final mathContent = matchedText.substring(1, matchedText.length - 1);
+  //       spans.add(
+  //         WidgetSpan(
+  //           child: Padding(
+  //             padding: const EdgeInsets.symmetric(horizontal: 2),
+  //             child: _buildMathWidget(mathContent, isInline: true),
+  //           ),
+  //         ),
+  //       );
+  //     } else {
+  //       // Regular text
+  //       spans.add(
+  //         TextSpan(
+  //           text: matchedText,
+  //           style: const TextStyle(
+  //             fontSize: 16,
+  //             color: Color(0xFF666666),
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     }
+  //   }
+
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 4),
+  //     child: SelectableText.rich(TextSpan(children: spans)),
+  //   );
+  // }
+
   Widget _buildInlineMathText(String text) {
-    // Parse mixed text with inline math
-    final regex = RegExp(r'(\\\(.*?\\\)|\$.*?(?<!\\)\$)|([^$\\]+)');
-    final matches = regex.allMatches(text);
+    // Split the line into alternating: plain-text and math segments
+    // Handles: \(...\)  $$...$$  $...$
+    final mathRegex = RegExp(
+      r'\\\([\s\S]*?\\\)' // \( ... \)
+      r'|\$\$[\s\S]*?\$\$' // $$ ... $$
+      r'|\$[^\$\n]+\$', // $ ... $
+    );
 
     final spans = <InlineSpan>[];
+    int lastIndex = 0;
 
-    for (final match in matches) {
-      final matchedText = match.group(0)!;
+    for (final match in mathRegex.allMatches(text)) {
+      // ── Plain text segment before this math ──────────────────────────────────
+      if (match.start > lastIndex) {
+        final segment = text.substring(lastIndex, match.start);
+        // Parse bold/italic/strikethrough INSIDE this plain segment
+        spans.addAll(_parseFormattingToSpans(segment));
+      }
 
-      if (matchedText.startsWith(r'\(') && matchedText.endsWith(r'\)')) {
-        // LaTeX inline math
-        final mathContent = matchedText.substring(2, matchedText.length - 2);
+      // ── Math segment ─────────────────────────────────────────────────────────
+      final mathMatch = match.group(0)!;
+      String mathContent = '';
+      bool isBlock = false;
+
+      if (mathMatch.startsWith(r'\(') && mathMatch.endsWith(r'\)')) {
+        mathContent = mathMatch.substring(2, mathMatch.length - 2);
+      } else if (mathMatch.startsWith(r'$$') && mathMatch.endsWith(r'$$')) {
+        mathContent = mathMatch.substring(2, mathMatch.length - 2);
+        isBlock = true;
+      } else if (mathMatch.startsWith(r'$') && mathMatch.endsWith(r'$')) {
+        mathContent = mathMatch.substring(1, mathMatch.length - 1);
+      }
+
+      if (mathContent.isNotEmpty) {
         spans.add(
           WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _buildMathWidget(mathContent, isInline: true),
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: _buildMathWidget(mathContent, isInline: !isBlock),
             ),
           ),
         );
-      } else if (matchedText.startsWith('\$') &&
-          matchedText.endsWith('\$') &&
-          matchedText.length > 2) {
-        // Dollar sign inline math (ensure it's not just a single dollar sign)
-        final mathContent = matchedText.substring(1, matchedText.length - 1);
-        spans.add(
-          WidgetSpan(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _buildMathWidget(mathContent, isInline: true),
-            ),
+      }
+
+      lastIndex = match.end;
+    }
+
+    // ── Remaining plain text after last math ─────────────────────────────────
+    if (lastIndex < text.length) {
+      spans.addAll(_parseFormattingToSpans(text.substring(lastIndex)));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SelectableText.rich(
+        TextSpan(
+          children: spans,
+          style: const TextStyle(
+            fontSize: 16,
+            color: Color(0xFF666666),
+            height: 1.6,
           ),
-        );
-      } else {
-        // Regular text
+        ),
+      ),
+    );
+  }
+
+  // ── Converts a plain-text segment with **bold** *italic* ~~strike~~
+  //    into a list of correctly styled TextSpans ─────────────────────────────────
+  List<InlineSpan> _parseFormattingToSpans(String text) {
+    if (text.isEmpty) return [];
+
+    final spans = <InlineSpan>[];
+    final RegExp formatRegex = RegExp(
+      r'\*\*\*(.+?)\*\*\*' // ***bold italic***
+      r'|\*\*(.+?)\*\*' // **bold**
+      r'|\*(.+?)\*' // *italic*
+      r'|~~(.+?)~~', // ~~strikethrough~~
+      dotAll: true,
+    );
+
+    int lastIndex = 0;
+
+    for (final match in formatRegex.allMatches(text)) {
+      // Plain text before this format match
+      if (match.start > lastIndex) {
         spans.add(
           TextSpan(
-            text: matchedText,
+            text: text.substring(lastIndex, match.start),
             style: const TextStyle(
               fontSize: 16,
               color: Color(0xFF666666),
@@ -3225,12 +4110,80 @@ class _LectureScreenState extends State<LectureScreen> {
           ),
         );
       }
+
+      if (match.group(1) != null) {
+        // ***bold italic***
+        spans.add(
+          TextSpan(
+            text: match.group(1),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF1A1A1A),
+              height: 1.6,
+            ),
+          ),
+        );
+      } else if (match.group(2) != null) {
+        // **bold**
+        spans.add(
+          TextSpan(
+            text: match.group(2),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1A1A1A),
+              height: 1.6,
+            ),
+          ),
+        );
+      } else if (match.group(3) != null) {
+        // *italic*
+        spans.add(
+          TextSpan(
+            text: match.group(3),
+            style: const TextStyle(
+              fontSize: 16,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF333333),
+              height: 1.6,
+            ),
+          ),
+        );
+      } else if (match.group(4) != null) {
+        // ~~strikethrough~~
+        spans.add(
+          TextSpan(
+            text: match.group(4),
+            style: const TextStyle(
+              fontSize: 16,
+              decoration: TextDecoration.lineThrough,
+              color: Color(0xFF666666),
+              height: 1.6,
+            ),
+          ),
+        );
+      }
+
+      lastIndex = match.end;
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SelectableText.rich(TextSpan(children: spans)),
-    );
+    // Any remaining plain text
+    if (lastIndex < text.length) {
+      spans.add(
+        TextSpan(
+          text: text.substring(lastIndex),
+          style: const TextStyle(
+            fontSize: 16,
+            color: Color(0xFF666666),
+            height: 1.6,
+          ),
+        ),
+      );
+    }
+
+    return spans;
   }
 
   Widget _buildMathWidget(String mathContent, {bool isInline = true}) {
@@ -3287,12 +4240,37 @@ class _LectureScreenState extends State<LectureScreen> {
     return regex.hasMatch(line);
   }
 
+  // Widget _buildLectureParagraph(String text) {
+  //   // Check if paragraph contains inline math
+  //   if (_containsInlineMath(text)) {
+  //     return _buildInlineMathText(text);
+  //   }
+
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 8),
+  //     child: SelectableText(
+  //       text,
+  //       style: const TextStyle(
+  //         fontSize: 16,
+  //         color: Color(0xFF666666),
+  //         height: 1.6,
+  //       ),
+  //     ),
+  //   );
+  // }
+
   Widget _buildLectureParagraph(String text) {
     // Check if paragraph contains inline math
     if (_containsInlineMath(text)) {
       return _buildInlineMathText(text);
     }
 
+    // IMPORTANT: Check if paragraph contains markdown formatting
+    if (text.contains('**') || text.contains('*') || text.contains('~~')) {
+      return _buildLectureText(text); // Use the markdown-aware parser
+    }
+
+    // Plain text without formatting
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SelectableText(
@@ -3306,68 +4284,150 @@ class _LectureScreenState extends State<LectureScreen> {
     );
   }
 
+  // Widget _buildLectureText(String text) {
+  //   // Check if text contains inline math
+  //   if (_containsInlineMath(text)) {
+  //     return _buildInlineMathText(text);
+  //   }
+
+  //   // Handle markdown formatting: **bold**, *italic*, ~~strikethrough~~
+  //   final List<InlineSpan> spans = [];
+  //   final RegExp markdownRegex = RegExp(
+  //     r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|~~.*?~~)',
+  //     dotAll: true,
+  //   );
+
+  //   int lastIndex = 0;
+  //   final matches = markdownRegex.allMatches(text);
+
+  //   for (final match in matches) {
+  //     // Add text before the match
+  //     if (match.start > lastIndex) {
+  //       spans.add(
+  //         TextSpan(
+  //           text: text.substring(lastIndex, match.start),
+  //           style: const TextStyle(
+  //             fontSize: 16,
+  //             color: Color(0xFF666666),
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     }
+
+  //     // Handle the matched formatting
+  //     final matchedText = match.group(0)!;
+
+  //     if (matchedText.startsWith('***') && matchedText.endsWith('***')) {
+  //       // Bold + Italic
+  //       final content = matchedText.substring(3, matchedText.length - 3);
+  //       spans.add(
+  //         TextSpan(
+  //           text: content,
+  //           style: const TextStyle(
+  //             fontWeight: FontWeight.bold,
+  //             fontStyle: FontStyle.italic,
+  //             color: Color(0xFF333333),
+  //             fontSize: 16,
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     } else if (matchedText.startsWith('**') && matchedText.endsWith('**')) {
+  //       // Bold
+  //       final content = matchedText.substring(2, matchedText.length - 2);
+  //       spans.add(
+  //         TextSpan(
+  //           text: content,
+  //           style: const TextStyle(
+  //             fontWeight: FontWeight.bold,
+  //             color: Color(0xFF333333),
+  //             fontSize: 16,
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     } else if (matchedText.startsWith('*') && matchedText.endsWith('*')) {
+  //       // Italic
+  //       final content = matchedText.substring(1, matchedText.length - 1);
+  //       spans.add(
+  //         TextSpan(
+  //           text: content,
+  //           style: const TextStyle(
+  //             fontStyle: FontStyle.italic,
+  //             color: Color(0xFF333333),
+  //             fontSize: 16,
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     } else if (matchedText.startsWith('~~') && matchedText.endsWith('~~')) {
+  //       // Strikethrough
+  //       final content = matchedText.substring(2, matchedText.length - 2);
+  //       spans.add(
+  //         TextSpan(
+  //           text: content,
+  //           style: const TextStyle(
+  //             decoration: TextDecoration.lineThrough,
+  //             color: Color(0xFF666666),
+  //             fontSize: 16,
+  //             height: 1.6,
+  //           ),
+  //         ),
+  //       );
+  //     }
+
+  //     lastIndex = match.end;
+  //   }
+
+  //   // Add remaining text
+  //   if (lastIndex < text.length) {
+  //     spans.add(
+  //       TextSpan(
+  //         text: text.substring(lastIndex),
+  //         style: const TextStyle(
+  //           fontSize: 16,
+  //           color: Color(0xFF666666),
+  //           height: 1.6,
+  //         ),
+  //       ),
+  //     );
+  //   }
+
+  //   // return SelectableText.rich(TextSpan(children: spans));
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 4),
+  //     child: SelectableText.rich(TextSpan(children: spans)),
+  //   );
+  // }
+
   Widget _buildLectureText(String text) {
-    // Check if text contains inline math
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    // If line has math, let _buildInlineMathText handle everything
+    // including bold/italic between math segments
     if (_containsInlineMath(text)) {
       return _buildInlineMathText(text);
     }
 
-    // Handle bold (**text**) and italic (*text*)
-    final regex = RegExp(r'(\*\*.*?\*\*|\*.*?\*|~~.*?~~)');
-    final parts = text.split(regex);
-    final spans = <InlineSpan>[];
+    // Pure text with formatting only
+    final spans = _parseFormattingToSpans(text);
 
-    for (final part in parts) {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        final content = part.substring(2, part.length - 2);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-        );
-      } else if (part.startsWith('*') &&
-          part.endsWith('*') &&
-          !part.startsWith('**')) {
-        final content = part.substring(1, part.length - 1);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: const TextStyle(
-              fontStyle: FontStyle.italic,
-              color: Color(0xFF333333),
-            ),
-          ),
-        );
-      } else if (part.startsWith('~~') && part.endsWith('~~')) {
-        final content = part.substring(2, part.length - 2);
-        spans.add(
-          TextSpan(
-            text: content,
-            style: const TextStyle(
-              decoration: TextDecoration.lineThrough,
-              color: Color(0xFF666666),
-            ),
-          ),
-        );
-      } else {
-        spans.add(
-          TextSpan(
-            text: part,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF666666),
-              height: 1.6,
-            ),
-          ),
-        );
-      }
-    }
+    if (spans.isEmpty) return const SizedBox.shrink();
 
-    return SelectableText.rich(TextSpan(children: spans));
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SelectableText.rich(
+        TextSpan(
+          children: spans,
+          style: const TextStyle(
+            fontSize: 16,
+            color: Color(0xFF666666),
+            height: 1.6,
+          ),
+        ),
+      ),
+    );
   }
 
   String _extractParagraph(List<String> lines, int startIndex) {
@@ -4806,5 +5866,12 @@ class CodeElementBuilder extends MarkdownElementBuilder {
         ],
       ),
     );
+  }
+}
+
+extension StringRepeat on String {
+  String repeat(int times) {
+    if (times <= 0) return '';
+    return List.filled(times, this).join();
   }
 }

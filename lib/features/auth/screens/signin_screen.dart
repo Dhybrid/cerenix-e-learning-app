@@ -19,7 +19,8 @@ class _SigninPageState extends State<SigninPage> {
   bool _isLoading = false;
 
   // Use serverClientId instead of clientId to force account selection
-  static const String _googleServerClientId = "686211760588-kj6miq7fdnu03a27mu46bu8nhbj10s85.apps.googleusercontent.com";
+  static const String _googleServerClientId =
+      "788077781659-r3cg2bhkk2oes4l7k9s8r52tdlp26dul.apps.googleusercontent.com";
 
   Future<void> _handleGoogleSignin() async {
     setState(() => _isLoading = true);
@@ -62,14 +63,21 @@ class _SigninPageState extends State<SigninPage> {
   }
 
   void _handleEmailSignin() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const EmailSigninPage()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const EmailSigninPage()),
+    );
   }
 
   void _goToSignup() {
     Navigator.pushReplacementNamed(context, '/signup');
   }
 
-  Future<void> _saveUserAndNavigate(Map<String, dynamic> userData, String method, String? password) async {
+  Future<void> _saveUserAndNavigate(
+    Map<String, dynamic> userData,
+    String method,
+    String? password,
+  ) async {
     final box = await Hive.openBox('user_box');
     await box.put('current_user', {
       ...userData,
@@ -79,7 +87,7 @@ class _SigninPageState extends State<SigninPage> {
 
     final bool onboardingDone = userData['onboarding_completed'] ?? false;
     if (!mounted) return;
-    
+
     if (onboardingDone) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
@@ -183,7 +191,11 @@ class _SigninPageState extends State<SigninPage> {
                     backgroundColor: Colors.white,
                   ),
                   child: _isLoading
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -206,9 +218,7 @@ class _SigninPageState extends State<SigninPage> {
               // Divider
               Row(
                 children: [
-                  Expanded(
-                    child: Divider(color: Colors.grey.shade300),
-                  ),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
@@ -220,9 +230,7 @@ class _SigninPageState extends State<SigninPage> {
                       ),
                     ),
                   ),
-                  Expanded(
-                    child: Divider(color: Colors.grey.shade300),
-                  ),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
                 ],
               ),
 
@@ -303,10 +311,26 @@ class _GoogleIconPainter extends CustomPainter {
     final green = Paint()..color = const Color(0xFF34A853);
     final yellow = Paint()..color = const Color(0xFFFBBC05);
 
-    canvas.drawCircle(Offset(size.width * 0.3, size.height * 0.3), size.width * 0.15, red);
-    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.3), size.width * 0.15, blue);
-    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.7), size.width * 0.15, green);
-    canvas.drawCircle(Offset(size.width * 0.3, size.height * 0.7), size.width * 0.15, yellow);
+    canvas.drawCircle(
+      Offset(size.width * 0.3, size.height * 0.3),
+      size.width * 0.15,
+      red,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.7, size.height * 0.3),
+      size.width * 0.15,
+      blue,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.7, size.height * 0.7),
+      size.width * 0.15,
+      green,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.3, size.height * 0.7),
+      size.width * 0.15,
+      yellow,
+    );
   }
 
   @override
@@ -327,10 +351,16 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
   bool _obscurePassword = true;
   bool _isLoading = false;
 
-  Future<Map<String, dynamic>?> _loginWithEmail(String email, String password) async {
+  Future<Map<String, dynamic>?> _loginWithEmail(
+    String email,
+    String password,
+  ) async {
     try {
       // First try using ApiService if the method exists
-      final response = await ApiService().loginWithEmail(email: email, password: password);
+      final response = await ApiService().loginWithEmail(
+        email: email,
+        password: password,
+      );
       return response;
     } catch (e) {
       // If loginWithEmail doesn't exist in ApiService, use direct HTTP call
@@ -380,15 +410,16 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
       }
     } catch (e) {
       String errorMessage = e.toString().replaceFirst('Exception: ', '');
-      
+
       // Provide more user-friendly error messages
-      if (errorMessage.contains('Invalid email or password') || 
+      if (errorMessage.contains('Invalid email or password') ||
           errorMessage.contains('Login failed')) {
-        errorMessage = "Invalid email or password. Please check your credentials.";
+        errorMessage =
+            "Invalid email or password. Please check your credentials.";
       } else if (errorMessage.contains('User not found')) {
         errorMessage = "Account not found. Please sign up first.";
       }
-      
+
       _showError(errorMessage);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -399,22 +430,30 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
     try {
       final box = await Hive.openBox('user_box');
       final userData = box.get('current_user');
-      
+
       // Check if we have stored credentials for offline login
-      if (userData != null && 
-          userData['email'] == email && 
+      if (userData != null &&
+          userData['email'] == email &&
           userData['password'] == password) {
         // Offline login successful
         await _saveUserAndNavigate(userData, 'email', password);
       } else {
-        throw Exception("Invalid email or password. Please check your credentials.");
+        throw Exception(
+          "Invalid email or password. Please check your credentials.",
+        );
       }
     } catch (e) {
-      throw Exception("Invalid email or password. Please check your credentials.");
+      throw Exception(
+        "Invalid email or password. Please check your credentials.",
+      );
     }
   }
 
-  Future<void> _saveUserAndNavigate(Map<String, dynamic> userData, String method, String? password) async {
+  Future<void> _saveUserAndNavigate(
+    Map<String, dynamic> userData,
+    String method,
+    String? password,
+  ) async {
     final box = await Hive.openBox('user_box');
     await box.put('current_user', {
       ...userData,
@@ -424,7 +463,7 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
 
     final bool onboardingDone = userData['onboarding_completed'] ?? false;
     if (!mounted) return;
-    
+
     if (onboardingDone) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
@@ -581,7 +620,9 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
                         if (value == null || value.isEmpty) {
                           return 'Please enter your email';
                         }
-                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                        if (!RegExp(
+                          r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                        ).hasMatch(value)) {
                           return 'Please enter a valid email';
                         }
                         return null;
@@ -614,7 +655,9 @@ class _EmailSigninPageState extends State<EmailSigninPage> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () {
-                      _showError("Please contact support to reset your password");
+                      _showError(
+                        "Please contact support to reset your password",
+                      );
                     },
                     child: Text(
                       "Forgot Password?",

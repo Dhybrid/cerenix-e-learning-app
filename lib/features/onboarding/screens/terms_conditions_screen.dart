@@ -7,7 +7,8 @@ class TermsAndConditionsScreen extends StatefulWidget {
   const TermsAndConditionsScreen({super.key, required this.userData});
 
   @override
-  State<TermsAndConditionsScreen> createState() => _TermsAndConditionsScreenState();
+  State<TermsAndConditionsScreen> createState() =>
+      _TermsAndConditionsScreenState();
 }
 
 class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
@@ -20,7 +21,7 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    
+
     // Check initial scroll position
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfAtBottom();
@@ -92,7 +93,10 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
               children: [
                 // App Bar
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     boxShadow: [
@@ -157,7 +161,9 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                 ),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: const Color(0xFF6366F1).withOpacity(0.2),
+                                  color: const Color(
+                                    0xFF6366F1,
+                                  ).withOpacity(0.2),
                                 ),
                               ),
                               child: Column(
@@ -169,7 +175,9 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF6366F1),
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         child: const Icon(
                                           Icons.school_rounded,
@@ -189,10 +197,26 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 16),
-                                  _buildSummaryItem('🏛️', 'University', widget.userData.university?.name),
-                                  _buildSummaryItem('🎓', 'Faculty', widget.userData.faculty?.name),
-                                  _buildSummaryItem('📚', 'Department', widget.userData.department?.name),
-                                  _buildSummaryItem('📅', 'Level', widget.userData.level?.name),
+                                  _buildSummaryItem(
+                                    '🏛️',
+                                    'University',
+                                    widget.userData.university?.name,
+                                  ),
+                                  _buildSummaryItem(
+                                    '🎓',
+                                    'Faculty',
+                                    widget.userData.faculty?.name,
+                                  ),
+                                  _buildSummaryItem(
+                                    '📚',
+                                    'Department',
+                                    widget.userData.department?.name,
+                                  ),
+                                  _buildSummaryItem(
+                                    '📅',
+                                    'Level',
+                                    widget.userData.level?.name,
+                                  ),
                                 ],
                               ),
                             ),
@@ -206,7 +230,9 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(16),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF6366F1).withOpacity(0.1),
+                                      color: const Color(
+                                        0xFF6366F1,
+                                      ).withOpacity(0.1),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
@@ -296,7 +322,8 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                               child: Column(
                                 children: [
                                   Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Checkbox(
                                         value: _acceptedTerms,
@@ -307,7 +334,9 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                         },
                                         activeColor: const Color(0xFF6366F1),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -335,17 +364,26 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                     width: double.infinity,
                                     height: 56,
                                     child: ElevatedButton(
-                                      onPressed: _acceptedTerms ? _continueToHome : null,
+                                      onPressed: _acceptedTerms
+                                          ? _continueToHome
+                                          : null,
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF6366F1),
+                                        backgroundColor: const Color(
+                                          0xFF6366F1,
+                                        ),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                         ),
                                         elevation: 2,
-                                        shadowColor: const Color(0xFF6366F1).withOpacity(0.3),
+                                        shadowColor: const Color(
+                                          0xFF6366F1,
+                                        ).withOpacity(0.3),
                                       ),
                                       child: const Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
                                           Text(
                                             'Continue to Cerenix',
@@ -356,7 +394,10 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                             ),
                                           ),
                                           SizedBox(width: 8),
-                                          Icon(Icons.arrow_forward_rounded, size: 20),
+                                          Icon(
+                                            Icons.arrow_forward_rounded,
+                                            size: 20,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -425,10 +466,7 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
       ),
       child: Row(
         children: [
-          Text(
-            emoji,
-            style: const TextStyle(fontSize: 20),
-          ),
+          Text(emoji, style: const TextStyle(fontSize: 20)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

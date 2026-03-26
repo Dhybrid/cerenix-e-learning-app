@@ -1,5 +1,6 @@
 // lib/features/courses/screens/courses_screen.dart
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,6 +15,8 @@ import '../../../features/past_questions/models/past_question_models.dart';
 import '../../../core/constants/endpoints.dart';
 import 'package:flutter/foundation.dart'; // Add this import
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/services/event_bus.dart';
+import '../../../core/services/activation_status_service.dart';
 
 class CoursesScreen extends StatefulWidget {
   const CoursesScreen({super.key});
@@ -63,41 +66,233 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   // Add this field to store current user ID
   String? _currentUserId;
+  StreamSubscription<ActivationStatusChangedEvent>? _activationChangedSubscription;
 
+  @override
+  // void initState() {
+  //   super.initState();
+  //   filteredCourses = [];
+  //   _searchController.addListener(_filterCourses);
+  //   // Load cached data IMMEDIATELY before any async operations
+  //   WidgetsBinding.instance.addPostFrameCallback((_) async {
+  //     // Step 1: Get user ID first (fast - from Hive)
+  //     await _ensureUserID();
+  //     // Step 2: Load cached courses INSTANTLY (this shows UI immediately)
+  //     final cachedCourses = await _loadCachedCourses();
+  //     if (cachedCourses.isNotEmpty && mounted) {
+  //       setState(() {
+  //         allCourses = cachedCourses;
+  //         filteredCourses = cachedCourses;
+  //         isLoading = false; // UI shows immediately!
+  //       });
+  //       print('✅ SHOWED ${cachedCourses.length} CACHED COURSES INSTANTLY');
+  //     }
+  //     // Step 3: Load cached profile (fast)
+  //     await _loadCachedUserProfile();
+  //     // Step 4: Fetch fresh data in background (user won't notice delay)
+  //     _fetchFreshDataInBackground();
+  //   });
+  //   // Emergency timeout - but we already showed cached courses so user isn't waiting
+  //   Future.delayed(const Duration(seconds: 3), () {
+  //     if (mounted && isLoading && allCourses.isEmpty) {
+  //       print('⚠️ Emergency - no courses yet, forcing load');
+  //       _loadCourses();
+  //     }
+  //   });
+  // }
   @override
   void initState() {
     super.initState();
     filteredCourses = [];
     _searchController.addListener(_filterCourses);
+    _activationChangedSubscription = EventBusService.instance
+        .on<ActivationStatusChangedEvent>()
+        .listen((event) {
+          if (!mounted) return;
+          setState(() {
+            _isUserActivated = event.isActivated;
+            _activationStatusMessage = event.isActivated
+                ? (event.grade?.toUpperCase() ?? 'Activated')
+                : 'Not Activated';
+            _checkingActivation = false;
+          });
+        });
 
-    // Start loading immediately
-    // _loadInitialData();
-
-    // Get user ID first, then load data
+    // Load cached data IMMEDIATELY before any async operations
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Step 1: Get user ID first (fast - from Hive)
       await _ensureUserID();
-      await _fixExistingRecentCourseData(); // ADD THIS LINE
-      await _debugRecentCourseStorage(); // ADD THIS
-      await _loadInitialData();
+
+      // Step 2: Load download status instantly (FAST)
+      await _loadDownloadStatuses();
+
+      // Step 3: Load cached courses INSTANTLY (this shows UI immediately)
+      final cachedCourses = await _loadCachedCourses();
+      if (cachedCourses.isNotEmpty && mounted) {
+        // Enhance with download status before showing
+        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+          cachedCourses,
+        );
+        setState(() {
+          allCourses = enhancedCourses;
+          filteredCourses = enhancedCourses;
+          isLoading = false; // UI shows immediately!
+        });
+        print(
+          '✅ SHOWED ${enhancedCourses.length} CACHED COURSES WITH DOWNLOAD ICONS',
+        );
+      }
+
+      // Step 4: Load cached profile (fast)
+      await _loadCachedUserProfile();
+
+      // Step 5: Fetch fresh data in background
+      _fetchFreshDataInBackground();
     });
 
-    // Add a safety check after 2 seconds
-    Future.delayed(Duration(seconds: 2), () async {
-      if (mounted && isLoading) {
-        print('⏰ Safety timeout - checking if courses loaded...');
-        final connectivityResult = await _connectivity.checkConnectivity();
-        final isOffline = connectivityResult == ConnectivityResult.none;
-
-        if (isOffline && allCourses.isEmpty) {
-          print('🚨 Emergency offline load triggered');
-          await _loadOfflineCourses();
-        }
+    // Emergency timeout
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && isLoading && allCourses.isEmpty) {
+        print('⚠️ Emergency - no courses yet, forcing load');
+        _loadCourses();
       }
     });
   }
 
+  /// Fetches fresh data in the background without blocking UI
+  Future<void> _fetchFreshDataInBackground() async {
+    try {
+      // FIRST: Load download status instantly from offline box (FAST)
+      await _loadDownloadStatuses();
+
+      // Update UI with download status immediately
+      if (mounted && allCourses.isNotEmpty) {
+        // Enhance existing courses with download status
+        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+          allCourses,
+        );
+        setState(() {
+          allCourses = enhancedCourses;
+          filteredCourses = enhancedCourses;
+        });
+        print('✅ Updated download status icons instantly');
+      }
+
+      // THEN: Fetch fresh courses in background
+      final freshCourses = await _apiService.getCoursesForUser();
+
+      if (freshCourses.isNotEmpty && mounted) {
+        // Enhance with download status
+        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+          freshCourses,
+        );
+
+        // Update UI with fresh courses
+        setState(() {
+          allCourses = enhancedCourses;
+          filteredCourses = enhancedCourses;
+        });
+
+        // Cache for next time
+        await _cacheCourses(enhancedCourses);
+
+        print('✅ UPDATED WITH ${enhancedCourses.length} FRESH COURSES');
+      }
+
+      // Load other data in background
+      await Future.wait([
+        _checkActivationStatus(),
+        _loadRecentCourseFromStorage(),
+      ]);
+
+      // Fix any corrupted data
+      await _fixExistingRecentCourseData();
+      await _debugRecentCourseStorage();
+      await _cleanupOrphanedRecentCourses();
+
+      // Refresh profile in background
+      _refreshUserProfileInBackground();
+    } catch (e) {
+      print('⚠️ Background fetch error: $e');
+    }
+  }
+
+  /// Fetches fresh data in the background without blocking UI
+  // Future<void> _fetchFreshDataInBackground() async {
+  //   try {
+  //     // Check connectivity
+  //     final connectivityResult = await _connectivity.checkConnectivity();
+  //     final isConnected = connectivityResult != ConnectivityResult.none;
+
+  //     if (!isConnected) return; // Don't try to fetch if offline
+
+  //     // Fetch fresh courses (this is the slow part)
+  //     final freshCourses = await _apiService.getCoursesForUser();
+
+  //     if (freshCourses.isNotEmpty && mounted) {
+  //       // Enhance with download status
+  //       final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+  //         freshCourses,
+  //       );
+
+  //       // Update UI with fresh courses
+  //       setState(() {
+  //         allCourses = enhancedCourses;
+  //         filteredCourses = enhancedCourses;
+  //       });
+
+  //       // Cache for next time (don't await - let it run in background)
+  //       _cacheCourses(enhancedCourses);
+
+  //       print('✅ UPDATED WITH ${enhancedCourses.length} FRESH COURSES');
+  //     }
+
+  //     // Load other data in background (don't await these either)
+  //     _checkActivationStatus();
+  //     _loadRecentCourseFromStorage();
+  //     _refreshUserProfileInBackground();
+  //     _cleanupOrphanedRecentCourses();
+  //   } catch (e) {
+  //     print('⚠️ Background fetch error: $e');
+  //   }
+  // }
+
+  // ADD THIS NEW METHOD
+  Future<void> _forceLoadCourses() async {
+    if (allCourses.isEmpty && !hasError) {
+      print('🚨 Forcing course load after timeout');
+      setState(() {
+        isLoading = true;
+      });
+
+      // Check connectivity and try again
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isConnected = connectivityResult != ConnectivityResult.none;
+
+      if (isConnected) {
+        // Try online load with current profile
+        if (_currentUserProfile != null) {
+          await _loadOnlineCoursesWithProfile(_currentUserProfile!);
+        } else {
+          // Try to get profile again
+          await _refreshUserProfileInBackground();
+          if (_currentUserProfile != null) {
+            await _loadOnlineCoursesWithProfile(_currentUserProfile!);
+          } else {
+            // Last resort - load without profile
+            await _loadCoursesWithoutProfile();
+          }
+        }
+      } else {
+        // Offline - try loading downloaded courses
+        await _loadOfflineCourses();
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _activationChangedSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -140,6 +335,18 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
       // Refresh profile in background
       _refreshUserProfileInBackground();
+
+      // ADD THIS: After loading, check if we need to retry
+      if (allCourses.isEmpty && mounted) {
+        print('⚠️ No courses loaded, will retry after profile refresh');
+        // Schedule a retry after profile refresh
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && allCourses.isEmpty && !isLoading) {
+            print('🔄 Retrying course load with refreshed profile');
+            _loadCourses();
+          }
+        });
+      }
     } catch (e) {
       print('❌ Error in initial load: $e');
       if (mounted) {
@@ -324,15 +531,20 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
         print('✅ User profile updated: ${_currentUserProfile?.toString()}');
 
+        //     // If department was previously empty, reload courses
+        //     if (_currentUserProfile!.departmentId.isNotEmpty &&
+        //         (allCourses.isEmpty || hasError)) {
+        //       if (mounted) {
+        //         WidgetsBinding.instance.addPostFrameCallback((_) {
+        //           _loadCoursesWithProfile(newProfile);
+        //         });
+        //       }
+        //     }
+        //   }
+        // } catch (e) {
+        //   print('❌ Error refreshing user profile: $e');
+        // }
         // If department was previously empty, reload courses
-        if (_currentUserProfile!.departmentId.isNotEmpty &&
-            (allCourses.isEmpty || hasError)) {
-          if (mounted) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _loadCoursesWithProfile(newProfile);
-            });
-          }
-        }
       }
     } catch (e) {
       print('❌ Error refreshing user profile: $e');
@@ -367,10 +579,79 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
+  // Future<void> _loadOnlineCoursesWithProfile(UserProfile profile) async {
+  //   try {
+  //     print('🌐 Fetching courses from API...');
+  //     final courses = await _apiService.getCoursesForUser();
+
+  //     if (courses.isEmpty) {
+  //       print('⚠️ No courses returned from API');
+  //       await _loadCachedOrDownloadedCoursesWithProfile(profile);
+  //       return;
+  //     }
+
+  //     // Filter courses by department AND other academic info
+  //     final filteredCoursesList = _filterCoursesByProfile(courses, profile);
+
+  //     if (filteredCoursesList.isEmpty) {
+  //       print('⚠️ No courses match your department and academic profile');
+  //       setState(() {
+  //         allCourses = [];
+  //         filteredCourses = [];
+  //         isLoading = false;
+  //         hasError = false;
+  //         errorMessage =
+  //             'No courses available for your department and academic level.';
+  //       });
+  //       return;
+  //     }
+
+  //     await _loadCoursesProgress(filteredCoursesList);
+  //     final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+  //       filteredCoursesList,
+  //     );
+
+  //     setState(() {
+  //       allCourses = enhancedCourses;
+  //       filteredCourses = enhancedCourses;
+  //       isLoading = false;
+  //       hasError = false;
+  //     });
+
+  //     await _cacheCourses(enhancedCourses);
+
+  //     print(
+  //       '✅ Loaded ${enhancedCourses.length} filtered courses for ${profile.departmentName}',
+  //     );
+  //   } catch (e) {
+  //     print('⚠️ API error: $e');
+  //     await _loadCachedOrDownloadedCoursesWithProfile(profile);
+  //   }
+  // }
+
+  // UPDATE THIS METHOD
   Future<void> _loadOnlineCoursesWithProfile(UserProfile profile) async {
     try {
       print('🌐 Fetching courses from API...');
-      final courses = await _apiService.getCoursesForUser();
+
+      // Add retry mechanism
+      List<Course> courses = [];
+      int retryCount = 0;
+      const maxRetries = 3;
+
+      while (retryCount < maxRetries) {
+        try {
+          courses = await _apiService.getCoursesForUser();
+          break; // Success, exit loop
+        } catch (e) {
+          retryCount++;
+          print('⚠️ API attempt $retryCount failed: $e');
+          if (retryCount == maxRetries) {
+            throw e; // Rethrow after max retries
+          }
+          await Future.delayed(Duration(milliseconds: 500 * retryCount));
+        }
+      }
 
       if (courses.isEmpty) {
         print('⚠️ No courses returned from API');
@@ -383,15 +664,28 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
       if (filteredCoursesList.isEmpty) {
         print('⚠️ No courses match your department and academic profile');
-        setState(() {
-          allCourses = [];
-          filteredCourses = [];
-          isLoading = false;
-          hasError = false;
-          errorMessage =
-              'No courses available for your department and academic level.';
-        });
-        return;
+        // DON'T show error immediately, check if there are any courses at all
+        if (courses.isNotEmpty) {
+          print('ℹ️ There are courses but none match your department');
+          setState(() {
+            allCourses = [];
+            filteredCourses = [];
+            isLoading = false;
+            hasError = false;
+            errorMessage =
+                'No courses match your department. Please check your academic profile.';
+          });
+          return;
+        } else {
+          setState(() {
+            allCourses = [];
+            filteredCourses = [];
+            isLoading = false;
+            hasError = false;
+            errorMessage = 'No courses available.';
+          });
+          return;
+        }
       }
 
       await _loadCoursesProgress(filteredCoursesList);
@@ -831,10 +1125,54 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
+  // Future<void> _loadCourses() async {
+  //   print('📚 Loading courses...');
+  //   print('👤 Current user ID: $_currentUserId');
+  //   print('👤 Current profile: ${_currentUserProfile?.toString()}');
+
+  //   if (!mounted) return;
+
+  //   setState(() {
+  //     isLoading = true;
+  //     hasError = false;
+  //     errorMessage = '';
+  //   });
+
+  //   try {
+  //     // ALWAYS check connectivity first
+  //     final connectivityResult = await _connectivity.checkConnectivity();
+  //     final isConnected = connectivityResult != ConnectivityResult.none;
+
+  //     print('📡 Connectivity: ${isConnected ? "Online" : "Offline"}');
+
+  //     if (isConnected) {
+  //       print('🌐 Online mode - fetching from API');
+  //       // If online and have profile, load with profile
+  //       if (_currentUserProfile != null) {
+  //         await _loadOnlineCoursesWithProfile(_currentUserProfile!);
+  //       } else {
+  //         await _loadCoursesWithoutProfile();
+  //       }
+  //     } else {
+  //       print('📴 OFFLINE MODE - loading from storage');
+  //       // Offline mode - load downloaded courses
+  //       await _loadOfflineCourses();
+  //     }
+  //   } catch (e) {
+  //     print('❌ Error in _loadCourses: $e');
+  //     if (mounted) {
+  //       setState(() {
+  //         isLoading = false;
+  //         hasError = true;
+  //         errorMessage = 'Failed to load courses.';
+  //       });
+  //     }
+  //   }
+  // }
+  // In courses_screen.dart - Replace your entire _loadCourses method
   Future<void> _loadCourses() async {
     print('📚 Loading courses...');
     print('👤 Current user ID: $_currentUserId');
-    print('👤 Current profile: ${_currentUserProfile?.toString()}');
 
     if (!mounted) return;
 
@@ -845,32 +1183,91 @@ class _CoursesScreenState extends State<CoursesScreen> {
     });
 
     try {
-      // ALWAYS check connectivity first
+      // Check connectivity
       final connectivityResult = await _connectivity.checkConnectivity();
       final isConnected = connectivityResult != ConnectivityResult.none;
 
-      print('📡 Connectivity: ${isConnected ? "Online" : "Offline"}');
-
       if (isConnected) {
+        // ONLINE: Just call the API directly - let Django handle filtering
         print('🌐 Online mode - fetching from API');
-        // If online and have profile, load with profile
-        if (_currentUserProfile != null) {
-          await _loadOnlineCoursesWithProfile(_currentUserProfile!);
-        } else {
-          await _loadCoursesWithoutProfile();
+        final courses = await _apiService.getCoursesForUser();
+
+        if (courses.isEmpty) {
+          print('⚠️ No courses returned from API');
+
+          // Try cache as fallback
+          final cachedCourses = await _loadCachedCourses();
+          if (cachedCourses.isNotEmpty) {
+            print('✅ Loaded ${cachedCourses.length} courses from cache');
+            setState(() {
+              allCourses = cachedCourses;
+              filteredCourses = cachedCourses;
+              isLoading = false;
+            });
+            return;
+          }
+
+          setState(() {
+            allCourses = [];
+            filteredCourses = [];
+            isLoading = false;
+            errorMessage = 'No courses available for your academic profile.';
+          });
+          return;
         }
+
+        // Load progress for courses
+        await _loadCoursesProgress(courses);
+
+        // Enhance with download status
+        final enhancedCourses = await _enhanceCoursesWithDownloadStatus(
+          courses,
+        );
+
+        setState(() {
+          allCourses = enhancedCourses;
+          filteredCourses = enhancedCourses;
+          isLoading = false;
+          hasError = false;
+        });
+
+        // Cache for offline use
+        await _cacheCourses(enhancedCourses);
+
+        print('✅ Loaded ${enhancedCourses.length} courses successfully');
       } else {
-        print('📴 OFFLINE MODE - loading from storage');
-        // Offline mode - load downloaded courses
+        // OFFLINE: Load downloaded courses
+        print('📴 Offline mode - loading from storage');
         await _loadOfflineCourses();
       }
     } catch (e) {
-      print('❌ Error in _loadCourses: $e');
+      print('❌ Error loading courses: $e');
+
+      // Try cache on error
+      try {
+        final cachedCourses = await _loadCachedCourses();
+        if (cachedCourses.isNotEmpty) {
+          print(
+            '✅ Loaded ${cachedCourses.length} courses from cache (fallback)',
+          );
+          setState(() {
+            allCourses = cachedCourses;
+            filteredCourses = cachedCourses;
+            isLoading = false;
+            errorMessage = 'Showing cached courses. Pull to refresh.';
+          });
+          return;
+        }
+      } catch (cacheError) {
+        print('⚠️ Cache fallback failed: $cacheError');
+      }
+
       if (mounted) {
         setState(() {
           isLoading = false;
           hasError = true;
-          errorMessage = 'Failed to load courses.';
+          errorMessage =
+              'Failed to load courses. Please check your connection.';
         });
       }
     }
@@ -1095,67 +1492,43 @@ class _CoursesScreenState extends State<CoursesScreen> {
   }
 
   Future<void> _checkActivationStatus() async {
+    if (mounted) {
+      setState(() {
+        _checkingActivation = true;
+      });
+    }
+
     try {
-      final activationBox = await Hive.openBox(activationCacheBox);
-      final cachedActivation = activationBox.get('user_activated');
-
-      if (cachedActivation == true) {
-        if (mounted) {
-          setState(() {
-            _isUserActivated = true;
-            _activationStatusMessage = 'Activated';
-            _checkingActivation = false;
-          });
-        }
-        return;
+      final cachedStatus = await ActivationStatusService.getCachedStatus();
+      if (cachedStatus.hasCachedValue && mounted) {
+        setState(() {
+          _isUserActivated = cachedStatus.isActivated;
+          _activationStatusMessage = cachedStatus.isActivated
+              ? (cachedStatus.grade?.toUpperCase() ?? 'Activated')
+              : 'Not Activated';
+        });
       }
 
-      try {
-        final activationData = await ApiService().getActivationStatus();
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: true,
+      );
 
-        if (activationData != null && activationData.isValid) {
-          await activationBox.put('user_activated', true);
-          await activationBox.put('activation_grade', activationData.grade);
-          await activationBox.put(
-            'activation_timestamp',
-            DateTime.now().toIso8601String(),
-          );
+      if (!mounted) return;
 
-          if (mounted) {
-            setState(() {
-              _isUserActivated = true;
-              _activationStatusMessage =
-                  '${activationData.grade?.toUpperCase() ?? 'Activated'}';
-              _checkingActivation = false;
-            });
-          }
-        } else {
-          await activationBox.put('user_activated', false);
-          if (mounted) {
-            setState(() {
-              _isUserActivated = false;
-              _activationStatusMessage = 'Not Activated';
-              _checkingActivation = false;
-            });
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _isUserActivated = cachedActivation ?? false;
-            _activationStatusMessage = _isUserActivated
-                ? 'Activated (offline)'
-                : 'Not Activated (offline)';
-            _checkingActivation = false;
-          });
-        }
-      }
+      setState(() {
+        _isUserActivated = status.isActivated;
+        _activationStatusMessage = status.isActivated
+            ? (status.grade?.toUpperCase() ?? 'Activated')
+            : 'Not Activated';
+        _checkingActivation = false;
+      });
     } catch (e) {
       print('❌ Error checking activation: $e');
       if (mounted) {
         setState(() {
-          _isUserActivated = false;
-          _activationStatusMessage = 'Error checking activation';
+          _activationStatusMessage = _isUserActivated
+              ? 'Activated'
+              : 'Not Activated';
           _checkingActivation = false;
         });
       }
@@ -1557,65 +1930,136 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
+  // Future<void> _loadCoursesProgress(List<Course> courses) async {
+  //   try {
+  //     print('📊 Loading progress for ${courses.length} courses...');
+
+  //     final userData = await _apiService.getCurrentUser();
+  //     if (userData == null) {
+  //       print('⚠️ No user data found');
+  //       return;
+  //     }
+
+  //     final userId = userData['id'].toString();
+
+  //     for (var course in courses) {
+  //       try {
+  //         print('📖 Calculating progress for course: ${course.code}');
+
+  //         final topics = await _apiService.getTopics(
+  //           courseId: int.parse(course.id),
+  //         );
+
+  //         if (topics.isNotEmpty) {
+  //           print('   - Found ${topics.length} topics');
+
+  //           int completedCount = 0;
+
+  //           for (var topic in topics) {
+  //             if (topic.isCompleted) {
+  //               completedCount++;
+  //             }
+  //           }
+
+  //           final progress = topics.isNotEmpty
+  //               ? ((completedCount / topics.length) * 100).round()
+  //               : 0;
+  //           course.progress = progress;
+
+  //           print(
+  //             '   - Progress: $progress% ($completedCount/${topics.length} topics)',
+  //           );
+
+  //           await _saveProgress(course.id, progress);
+  //         } else {
+  //           print('   - No topics found for this course');
+  //           final cachedProgress = await _getCachedProgress(course.id);
+  //           course.progress = cachedProgress;
+  //         }
+  //       } catch (e) {
+  //         print('⚠️ Error loading progress for ${course.code}: $e');
+  //         final cachedProgress = await _getCachedProgress(course.id);
+  //         course.progress = cachedProgress;
+  //       }
+  //     }
+
+  //     print('✅ Course progress loading complete');
+  //   } catch (e) {
+  //     print('❌ Error loading course progress: $e');
+  //     for (var course in courses) {
+  //       course.progress = await _getCachedProgress(course.id);
+  //     }
+  //   }
+  // }
+
+  // In courses_screen.dart - Replace your _loadCoursesProgress method
   Future<void> _loadCoursesProgress(List<Course> courses) async {
+    print('📊 Loading progress for ${courses.length} courses...');
+
+    // FIRST: Show cached progress immediately (fast)
+    for (var course in courses) {
+      final cachedProgress = await _getCachedProgress(course.id);
+      course.progress = cachedProgress;
+    }
+
+    // Update UI with cached progress
+    if (mounted) {
+      setState(() {});
+    }
+
+    // THEN: Try to fetch real progress in the background (slow)
     try {
-      print('📊 Loading progress for ${courses.length} courses...');
-
       final userData = await _apiService.getCurrentUser();
-      if (userData == null) {
-        print('⚠️ No user data found');
-        return;
-      }
+      if (userData == null) return;
 
-      final userId = userData['id'].toString();
+      // Create a list of futures for all topic requests
+      final List<Future> progressFutures = [];
 
       for (var course in courses) {
-        try {
-          print('📖 Calculating progress for course: ${course.code}');
-
-          final topics = await _apiService.getTopics(
-            courseId: int.parse(course.id),
-          );
-
-          if (topics.isNotEmpty) {
-            print('   - Found ${topics.length} topics');
-
-            int completedCount = 0;
-
-            for (var topic in topics) {
-              if (topic.isCompleted) {
-                completedCount++;
-              }
-            }
-
-            final progress = topics.isNotEmpty
-                ? ((completedCount / topics.length) * 100).round()
-                : 0;
-            course.progress = progress;
-
-            print(
-              '   - Progress: $progress% ($completedCount/${topics.length} topics)',
-            );
-
-            await _saveProgress(course.id, progress);
-          } else {
-            print('   - No topics found for this course');
-            final cachedProgress = await _getCachedProgress(course.id);
-            course.progress = cachedProgress;
-          }
-        } catch (e) {
-          print('⚠️ Error loading progress for ${course.code}: $e');
-          final cachedProgress = await _getCachedProgress(course.id);
-          course.progress = cachedProgress;
-        }
+        progressFutures.add(_fetchCourseProgress(course));
       }
 
-      print('✅ Course progress loading complete');
+      // Wait for all progress fetches with a timeout
+      await Future.wait(progressFutures).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⏰ Progress fetch timeout - using cached values');
+          return [];
+        },
+      );
+
+      // Update UI with real progress
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
-      print('❌ Error loading course progress: $e');
-      for (var course in courses) {
-        course.progress = await _getCachedProgress(course.id);
+      print('⚠️ Background progress fetch error: $e');
+      // Already showing cached progress, so no need to show error
+    }
+  }
+
+  // Helper method to fetch progress for a single course
+  Future<void> _fetchCourseProgress(Course course) async {
+    try {
+      final topics = await _apiService
+          .getTopics(courseId: int.parse(course.id))
+          .timeout(const Duration(seconds: 3));
+
+      if (topics.isNotEmpty) {
+        int completedCount = 0;
+        for (var topic in topics) {
+          if (topic.isCompleted) completedCount++;
+        }
+
+        final progress = ((completedCount / topics.length) * 100).round();
+        course.progress = progress;
+        await _saveProgress(course.id, progress);
+
+        print('   - ${course.code}: $progress% (real)');
       }
+    } catch (e) {
+      print('   - ${course.code}: using cached (fetch failed)');
+      // Keep cached progress
     }
   }
 

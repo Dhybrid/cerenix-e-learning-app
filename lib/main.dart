@@ -75,36 +75,6 @@ import 'features/info/screens/notification_screen.dart';
 import 'features/home/screens/coming_soon_screen.dart';
 import 'features/debug/debug_screen_logOut.dart';
 
-// void main() async {
-//   WidgetsFlutterBinding.ensureInitialized();
-
-//   // Get application documents directory
-//   final appDir = await getApplicationDocumentsDirectory();
-
-//   // Initialize Hive
-//   await Hive.initFlutter();
-//   await Hive.openBox('user_box'); // Stores current user
-//   await Hive.openBox('settings_box'); // For theme, notifications, etc.
-//   await Hive.openBox('courses_box');
-
-//   await Hive.openBox('cgpa_box'); // ADD THIS LINE
-
-//   await Hive.openBox('offline_courses'); // Make sure this box is opened
-//   await Hive.openBox('course_progress_cache'); // Open progress cache
-//   await Hive.openBox('course_outlines_cache'); // Open outlines cache
-
-//   // Initialize offline service with adapters
-//   await OfflineService.initHive();
-
-//   // Register adapters
-//   Hive.registerAdapter(ChatSessionAdapter());
-//   Hive.registerAdapter(ChatMessageAdapter());
-
-//   // Open boxes
-
-//   runApp(const CerenixApp());
-// }
-
 // lib/main.dart
 
 // Import Hive adapters FIRST

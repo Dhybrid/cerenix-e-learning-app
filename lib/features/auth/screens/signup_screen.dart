@@ -17,7 +17,8 @@ class _SignupPageState extends State<SignupPage> {
   bool _isLoading = false;
 
   // Use serverClientId instead of clientId to force account selection
-  static const String _googleServerClientId = "686211760588-kj6miq7fdnu03a27mu46bu8nhbj10s85.apps.googleusercontent.com";
+  static const String _googleServerClientId =
+      "788077781659-r3cg2bhkk2oes4l7k9s8r52tdlp26dul.apps.googleusercontent.com";
 
   Future<void> _handleGoogleSignup() async {
     setState(() => _isLoading = true);
@@ -60,14 +61,21 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   void _handleEmailSignup() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const EmailSignupPage()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const EmailSignupPage()),
+    );
   }
 
   void _goToSignin() {
     Navigator.pushReplacementNamed(context, '/signin');
   }
 
-  Future<void> _saveUserAndNavigate(Map<String, dynamic> userData, String method, String? password) async {
+  Future<void> _saveUserAndNavigate(
+    Map<String, dynamic> userData,
+    String method,
+    String? password,
+  ) async {
     final box = await Hive.openBox('user_box');
     await box.put('current_user', {
       ...userData,
@@ -77,7 +85,10 @@ class _SignupPageState extends State<SignupPage> {
 
     final bool onboardingDone = userData['onboarding_completed'] ?? false;
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, onboardingDone ? '/home' : '/academic_setup');
+    Navigator.pushReplacementNamed(
+      context,
+      onboardingDone ? '/home' : '/academic_setup',
+    );
   }
 
   void _showError(String message) {
@@ -170,17 +181,29 @@ class _SignupPageState extends State<SignupPage> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF1F2937),
                     side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     backgroundColor: Colors.white,
                   ),
                   child: _isLoading
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             _buildGoogleIcon(),
                             const SizedBox(width: 12),
-                            const Text("Continue with Google", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                            const Text(
+                              "Continue with Google",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ],
                         ),
                 ),
@@ -194,7 +217,14 @@ class _SignupPageState extends State<SignupPage> {
                   Expanded(child: Divider(color: Colors.grey.shade300)),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text("OR", style: TextStyle(color: Colors.grey.shade500, fontWeight: FontWeight.w500, fontSize: 14)),
+                    child: Text(
+                      "OR",
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                   Expanded(child: Divider(color: Colors.grey.shade300)),
                 ],
@@ -210,7 +240,9 @@ class _SignupPageState extends State<SignupPage> {
                   onPressed: _handleEmailSignup,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6366F1),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     elevation: 2,
                   ),
                   child: Row(
@@ -218,7 +250,14 @@ class _SignupPageState extends State<SignupPage> {
                     children: const [
                       Icon(Icons.email_rounded, color: Colors.white, size: 20),
                       SizedBox(width: 12),
-                      Text("Sign up with Email", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                      Text(
+                        "Sign up with Email",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -233,11 +272,17 @@ class _SignupPageState extends State<SignupPage> {
                   child: RichText(
                     text: TextSpan(
                       text: "Already have an account? ",
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 15,
+                      ),
                       children: const [
                         TextSpan(
                           text: "Sign In",
-                          style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: Color(0xFF6366F1),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
@@ -262,10 +307,26 @@ class _GoogleIconPainter extends CustomPainter {
     final green = Paint()..color = const Color(0xFF34A853);
     final yellow = Paint()..color = const Color(0xFFFBBC05);
 
-    canvas.drawCircle(Offset(size.width * 0.3, size.height * 0.3), size.width * 0.15, red);
-    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.3), size.width * 0.15, blue);
-    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.7), size.width * 0.15, green);
-    canvas.drawCircle(Offset(size.width * 0.3, size.height * 0.7), size.width * 0.15, yellow);
+    canvas.drawCircle(
+      Offset(size.width * 0.3, size.height * 0.3),
+      size.width * 0.15,
+      red,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.7, size.height * 0.3),
+      size.width * 0.15,
+      blue,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.7, size.height * 0.7),
+      size.width * 0.15,
+      green,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.3, size.height * 0.7),
+      size.width * 0.15,
+      yellow,
+    );
   }
 
   @override
@@ -297,7 +358,10 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
       final email = _emailController.text.trim();
       final password = _passwordController.text;
 
-      final userData = await ApiService().registerWithEmail(email: email, password: password);
+      final userData = await ApiService().registerWithEmail(
+        email: email,
+        password: password,
+      );
       if (userData == null) throw Exception("Registration failed");
 
       await _saveUserAndNavigate(userData, 'email', password);
@@ -308,7 +372,11 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
     }
   }
 
-  Future<void> _saveUserAndNavigate(Map<String, dynamic> userData, String method, String? password) async {
+  Future<void> _saveUserAndNavigate(
+    Map<String, dynamic> userData,
+    String method,
+    String? password,
+  ) async {
     final box = await Hive.openBox('user_box');
     await box.put('current_user', {
       ...userData,
@@ -318,7 +386,10 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
 
     final bool onboardingDone = userData['onboarding_completed'] ?? false;
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, onboardingDone ? '/home' : '/academic_setup');
+    Navigator.pushReplacementNamed(
+      context,
+      onboardingDone ? '/home' : '/academic_setup',
+    );
   }
 
   void _showError(String message) {
@@ -347,7 +418,14 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Color(0xFF374151), fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF374151),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
@@ -358,11 +436,26 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
             hintStyle: TextStyle(color: Colors.grey.shade400),
             prefixIcon: Icon(prefixIcon, color: Colors.grey.shade500),
             suffixIcon: onToggleObscure != null
-                ? IconButton(icon: Icon(obscureText ? Icons.visibility_off : Icons.visibility, color: Colors.grey.shade500), onPressed: onToggleObscure)
+                ? IconButton(
+                    icon: Icon(
+                      obscureText ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey.shade500,
+                    ),
+                    onPressed: onToggleObscure,
+                  )
                 : null,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF6366F1))),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF6366F1)),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
             filled: true,
             fillColor: Colors.grey.shade50,
           ),
@@ -381,7 +474,10 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 32, vertical: isSmallScreen ? 20 : 40),
+          padding: EdgeInsets.symmetric(
+            horizontal: 32,
+            vertical: isSmallScreen ? 20 : 40,
+          ),
           child: Form(
             key: _formKey,
             child: Column(
@@ -391,8 +487,15 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                   onPressed: () => Navigator.pop(context),
                   icon: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
-                    child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.grey.shade700),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 18,
+                      color: Colors.grey.shade700,
+                    ),
                   ),
                 ),
 
@@ -401,9 +504,24 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Create Account", style: TextStyle(fontSize: isSmallScreen ? 28 : 32, fontWeight: FontWeight.w700, color: const Color(0xFF1F2937), letterSpacing: -0.5)),
+                    Text(
+                      "Create Account",
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 28 : 32,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1F2937),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    Text("Enter your details to get started", style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.w400)),
+                    Text(
+                      "Enter your details to get started",
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
                   ],
                 ),
 
@@ -415,7 +533,14 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                   prefixIcon: Icons.email_rounded,
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  validator: (v) => v == null || v.isEmpty || !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v) ? 'Enter a valid email' : null,
+                  validator: (v) =>
+                      v == null ||
+                          v.isEmpty ||
+                          !RegExp(
+                            r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                          ).hasMatch(v)
+                      ? 'Enter a valid email'
+                      : null,
                 ),
                 const SizedBox(height: 20),
                 _buildTextField(
@@ -424,8 +549,11 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                   prefixIcon: Icons.lock_rounded,
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  onToggleObscure: () => setState(() => _obscurePassword = !_obscurePassword),
-                  validator: (v) => v == null || v.length < 6 ? 'Password must be at least 6 characters' : null,
+                  onToggleObscure: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
+                  validator: (v) => v == null || v.length < 6
+                      ? 'Password must be at least 6 characters'
+                      : null,
                 ),
                 const SizedBox(height: 20),
                 _buildTextField(
@@ -434,8 +562,12 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                   prefixIcon: Icons.lock_outline_rounded,
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirmPassword,
-                  onToggleObscure: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
-                  validator: (v) => v != _passwordController.text ? 'Passwords do not match' : null,
+                  onToggleObscure: () => setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                  ),
+                  validator: (v) => v != _passwordController.text
+                      ? 'Passwords do not match'
+                      : null,
                 ),
 
                 SizedBox(height: isSmallScreen ? 32 : 48),
@@ -445,10 +577,30 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                   height: 56,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _signup,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 2),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6366F1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 2,
+                    ),
                     child: _isLoading
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                        : const Text("Create Account", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                            ),
+                          )
+                        : const Text(
+                            "Create Account",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
 
@@ -460,9 +612,18 @@ class _EmailSignupPageState extends State<EmailSignupPage> {
                     child: RichText(
                       text: TextSpan(
                         text: "Already have an account? ",
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 15,
+                        ),
                         children: const [
-                          TextSpan(text: "Sign In", style: TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.w600)),
+                          TextSpan(
+                            text: "Sign In",
+                            style: TextStyle(
+                              color: Color(0xFF6366F1),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),

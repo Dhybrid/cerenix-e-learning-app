@@ -32,90 +32,90 @@ class ApiService {
   }
 
   // Google Sign Up / Login
-  // Future<Map<String, dynamic>?> googleLogin(String idToken) async {
-  //   final response = await http.post(
-  //     Uri.parse(ApiEndpoints.googleLogin),
-  //     headers: {'Content-Type': 'application/json'},
-  //     body: jsonEncode({'id_token': idToken}),
-  //   );
-
-  //   if (response.statusCode == 200) {
-  //     final responseData = jsonDecode(response.body);
-
-  //     // Handle both "welcome back" and normal login responses
-  //     Map<String, dynamic> userData;
-  //     if (responseData['message'] != null) {
-  //       // This is a "welcome back" message
-  //       userData = responseData['user'];
-  //     } else {
-  //       // Normal login response
-  //       userData = responseData['user'];
-  //     }
-
-  //     // Store user data in Hive
-  //     final box = await Hive.openBox('user_box');
-  //     await box.put('current_user', userData);
-
-  //     print('✅ User data saved to Hive: $userData');
-  //     return userData;
-  //   } else {
-  //     final error = jsonDecode(response.body)['error'] ?? 'Login failed';
-  //     throw Exception(error);
-  //   }
-  // }
-
-  // Google Sign Up / Login
   Future<Map<String, dynamic>?> googleLogin(String idToken) async {
-    try {
-      final response = await http
-          .post(
-            Uri.parse(ApiEndpoints.googleLogin),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'id_token': idToken}),
-          )
-          .timeout(Duration(seconds: 30)); // Add timeout
+    final response = await http.post(
+      Uri.parse(ApiEndpoints.googleLogin),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'id_token': idToken}),
+    );
 
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      final responseData = jsonDecode(response.body);
 
-        // Handle both "welcome back" and normal login responses
-        Map<String, dynamic> userData;
-        if (responseData['message'] != null) {
-          userData = responseData['user'];
-        } else {
-          userData = responseData['user'];
-        }
-
-        // Store user data in Hive
-        final box = await Hive.openBox('user_box');
-        await box.put('current_user', userData);
-
-        print('✅ User data saved to Hive');
-        return userData;
+      // Handle both "welcome back" and normal login responses
+      Map<String, dynamic> userData;
+      if (responseData['message'] != null) {
+        // This is a "welcome back" message
+        userData = responseData['user'];
       } else {
-        // USER-FRIENDLY MESSAGES:
-        if (response.statusCode == 401) {
-          throw Exception('Invalid credentials. Please try again.');
-        } else if (response.statusCode == 500) {
-          throw Exception('Server error. Please try again later.');
-        } else if (response.statusCode == 404) {
-          throw Exception('Service temporarily unavailable.');
-        } else {
-          throw Exception(
-            'Login failed. Please check your connection and try again.',
-          );
-        }
+        // Normal login response
+        userData = responseData['user'];
       }
-    } on TimeoutException {
-      throw Exception(
-        'Connection timeout. Please check your internet connection.',
-      );
-    } on SocketException {
-      throw Exception('No internet connection. Please check your network.');
-    } catch (e) {
-      throw Exception('An error occurred during login. Please try again.');
+
+      // Store user data in Hive
+      final box = await Hive.openBox('user_box');
+      await box.put('current_user', userData);
+
+      print('✅ User data saved to Hive: $userData');
+      return userData;
+    } else {
+      final error = jsonDecode(response.body)['error'] ?? 'Login failed';
+      throw Exception(error);
     }
   }
+
+  // Google Sign Up / Login
+  // Future<Map<String, dynamic>?> googleLogin(String idToken) async {
+  //   try {
+  //     final response = await http
+  //         .post(
+  //           Uri.parse(ApiEndpoints.googleLogin),
+  //           headers: {'Content-Type': 'application/json'},
+  //           body: jsonEncode({'id_token': idToken}),
+  //         )
+  //         .timeout(Duration(seconds: 30)); // Add timeout
+
+  //     if (response.statusCode == 200) {
+  //       final responseData = jsonDecode(response.body);
+
+  //       // Handle both "welcome back" and normal login responses
+  //       Map<String, dynamic> userData;
+  //       if (responseData['message'] != null) {
+  //         userData = responseData['user'];
+  //       } else {
+  //         userData = responseData['user'];
+  //       }
+
+  //       // Store user data in Hive
+  //       final box = await Hive.openBox('user_box');
+  //       await box.put('current_user', userData);
+
+  //       print('✅ User data saved to Hive');
+  //       return userData;
+  //     } else {
+  //       // USER-FRIENDLY MESSAGES:
+  //       if (response.statusCode == 401) {
+  //         throw Exception('Invalid credentials. Please try again.');
+  //       } else if (response.statusCode == 500) {
+  //         throw Exception('Server error. Please try again later.');
+  //       } else if (response.statusCode == 404) {
+  //         throw Exception('Service temporarily unavailable.');
+  //       } else {
+  //         throw Exception(
+  //           'Login failed. Please check your connection and try again.',
+  //         );
+  //       }
+  //     }
+  //   } on TimeoutException {
+  //     throw Exception(
+  //       'Connection timeout. Please check your internet connection.',
+  //     );
+  //   } on SocketException {
+  //     throw Exception('No internet connection. Please check your network.');
+  //   } catch (e) {
+  //     throw Exception('An error occurred during login. Please try again.');
+  //   }
+  // }
 
   // Email Registration + Auto Login
   // Future<Map<String, dynamic>?> registerWithEmail({
@@ -290,7 +290,7 @@ class ApiService {
     }
   }
 
-  // Update Onboarding - CRITICAL FIX
+  // Update Onboarding
   // Future<void> updateOnboarding({
   //   String? universityId,
   //   String? facultyId,
@@ -298,61 +298,60 @@ class ApiService {
   //   String? levelId,
   //   String? semesterId,
   // }) async {
-  //   // Get user data from Hive to get email and ID
-  //   final box = await Hive.openBox('user_box');
-  //   final userData = box.get('current_user');
+  //   try {
+  //     final box = await Hive.openBox('user_box');
+  //     final userData = box.get('current_user');
 
-  //   if (userData == null) {
-  //     throw Exception("User not found in local storage - please login again");
-  //   }
+  //     if (userData == null) {
+  //       throw Exception("Please login to complete your profile.");
+  //     }
 
-  //   final Map<String, dynamic> data = {};
+  //     final Map<String, dynamic> data = {};
 
-  //   // Send both email and user_id for identification
-  //   if (userData['email'] != null) data['email'] = userData['email'];
-  //   if (userData['id'] != null) data['user_id'] = userData['id'];
+  //     if (userData['email'] != null) data['email'] = userData['email'];
+  //     if (userData['id'] != null) data['user_id'] = userData['id'];
 
-  //   // Add academic data
-  //   if (universityId != null && universityId.isNotEmpty)
-  //     data['university_id'] = universityId;
-  //   if (facultyId != null && facultyId.isNotEmpty)
-  //     data['faculty_id'] = facultyId;
-  //   if (departmentId != null && departmentId.isNotEmpty)
-  //     data['department_id'] = departmentId;
-  //   if (levelId != null && levelId.isNotEmpty) data['level_id'] = levelId;
-  //   if (semesterId != null && semesterId.isNotEmpty)
-  //     data['semester_id'] = semesterId;
+  //     if (universityId != null && universityId.isNotEmpty)
+  //       data['university_id'] = universityId;
+  //     if (facultyId != null && facultyId.isNotEmpty)
+  //       data['faculty_id'] = facultyId;
+  //     if (departmentId != null && departmentId.isNotEmpty)
+  //       data['department_id'] = departmentId;
+  //     if (levelId != null && levelId.isNotEmpty) data['level_id'] = levelId;
+  //     if (semesterId != null && semesterId.isNotEmpty)
+  //       data['semester_id'] = semesterId;
 
-  //   print('📤 Sending onboarding data to Django: $data');
+  //     final response = await http
+  //         .post(
+  //           Uri.parse(ApiEndpoints.updateOnboarding),
+  //           headers: {'Content-Type': 'application/json'},
+  //           body: jsonEncode(data),
+  //         )
+  //         .timeout(Duration(seconds: 30));
 
-  //   final response = await http.post(
-  //     Uri.parse(ApiEndpoints.updateOnboarding),
-  //     headers: {'Content-Type': 'application/json'},
-  //     body: jsonEncode(data),
-  //   );
-
-  //   print('📥 Response status: ${response.statusCode}');
-  //   print('📥 Response body: ${response.body}');
-
-  //   if (response.statusCode == 200) {
-  //     // CRITICAL: Update local user data to mark onboarding as completed
-  //     final updatedUserData = Map<String, dynamic>.from(userData);
-  //     updatedUserData['onboarding_completed'] = true;
-
-  //     print('💾 Saving to Hive - onboarding_completed: true');
-  //     await box.put('current_user', updatedUserData);
-
-  //     // Verify the save worked
-  //     final verifiedData = box.get('current_user');
-  //     print('✅ Verified Hive data after update: $verifiedData');
-  //   } else {
-  //     final errorData = jsonDecode(response.body);
-  //     final error = errorData['error'] ?? 'Failed to update onboarding';
-  //     throw Exception('$error (Status: ${response.statusCode})');
+  //     if (response.statusCode == 200) {
+  //       final updatedUserData = Map<String, dynamic>.from(userData);
+  //       updatedUserData['onboarding_completed'] = true;
+  //       await box.put('current_user', updatedUserData);
+  //     } else {
+  //       if (response.statusCode == 400) {
+  //         throw Exception(
+  //           'Invalid academic information. Please check your selections.',
+  //         );
+  //       } else {
+  //         throw Exception('Failed to save academic profile. Please try again.');
+  //       }
+  //     }
+  //   } on TimeoutException {
+  //     throw Exception('Request timeout. Please try again.');
+  //   } on SocketException {
+  //     throw Exception('No internet connection. Please check your network.');
+  //   } catch (e) {
+  //     throw Exception('Failed to save profile. Please try again.');
   //   }
   // }
 
-  // Update Onboarding
+  // In api_service.dart - Update your updateOnboarding method
   Future<void> updateOnboarding({
     String? universityId,
     String? facultyId,
@@ -392,9 +391,45 @@ class ApiService {
           .timeout(Duration(seconds: 30));
 
       if (response.statusCode == 200) {
+        // Parse the response to get the updated user data
+        final responseData = json.decode(response.body);
+
+        // IMPORTANT: Update local user data with complete academic info
         final updatedUserData = Map<String, dynamic>.from(userData);
         updatedUserData['onboarding_completed'] = true;
+
+        // Save the academic IDs directly
+        if (universityId != null)
+          updatedUserData['university_id'] = universityId;
+        if (departmentId != null)
+          updatedUserData['department_id'] = departmentId;
+        if (levelId != null) updatedUserData['level_id'] = levelId;
+        if (semesterId != null) updatedUserData['semester_id'] = semesterId;
+
+        // If the response contains full objects, save those too
+        if (responseData['university'] != null) {
+          updatedUserData['university'] = responseData['university'];
+        }
+        if (responseData['department'] != null) {
+          updatedUserData['department'] = responseData['department'];
+        }
+        if (responseData['level'] != null) {
+          updatedUserData['level'] = responseData['level'];
+        }
+        if (responseData['semester'] != null) {
+          updatedUserData['semester'] = responseData['semester'];
+        }
+
+        print('💾 Saving to Hive - academic profile completed');
         await box.put('current_user', updatedUserData);
+
+        // Verify the save worked
+        final verifiedData = box.get('current_user');
+        print('✅ Verified Hive data after update:');
+        print('   - University ID: ${verifiedData['university_id']}');
+        print('   - Department ID: ${verifiedData['department_id']}');
+        print('   - Level ID: ${verifiedData['level_id']}');
+        print('   - Semester ID: ${verifiedData['semester_id']}');
       } else {
         if (response.statusCode == 400) {
           throw Exception(
@@ -463,6 +498,27 @@ class ApiService {
     return await _isUserAuthenticated();
   }
 
+  // Future<Map<String, dynamic>?> getCurrentUser() async {
+  //   try {
+  //     final box = await Hive.openBox('user_box');
+  //     final userData = box.get('current_user');
+
+  //     if (userData == null) {
+  //       print('❌ No user data found in Hive');
+  //       return null;
+  //     }
+
+  //     // FIX: Properly convert Hive data to Map<String, dynamic>
+  //     final userMap = Map<String, dynamic>.from(userData);
+  //     print('✅ User data loaded from Hive: ${userMap['email']}');
+
+  //     return userMap;
+  //   } catch (e) {
+  //     print('❌ Error getting user from Hive: $e');
+  //     throw Exception('Failed to load user data: $e');
+  //   }
+  // }
+  // In api_service.dart - Replace your existing getCurrentUser method
   Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
       final box = await Hive.openBox('user_box');
@@ -477,10 +533,47 @@ class ApiService {
       final userMap = Map<String, dynamic>.from(userData);
       print('✅ User data loaded from Hive: ${userMap['email']}');
 
+      // CRITICAL: Check if academic data is present
+      bool hasAcademicData = false;
+
+      // Check university
+      if (userMap['university'] != null) {
+        hasAcademicData = true;
+      } else if (userMap['university_id'] != null &&
+          userMap['university_id'].toString().isNotEmpty) {
+        hasAcademicData = true;
+      }
+
+      // Check department
+      if (userMap['department'] != null) {
+        hasAcademicData = true;
+      } else if (userMap['department_id'] != null &&
+          userMap['department_id'].toString().isNotEmpty) {
+        hasAcademicData = true;
+      }
+
+      // Check level
+      if (userMap['level'] != null) {
+        hasAcademicData = true;
+      } else if (userMap['level_id'] != null &&
+          userMap['level_id'].toString().isNotEmpty) {
+        hasAcademicData = true;
+      }
+
+      // Check semester
+      if (userMap['semester'] != null) {
+        hasAcademicData = true;
+      } else if (userMap['semester_id'] != null &&
+          userMap['semester_id'].toString().isNotEmpty) {
+        hasAcademicData = true;
+      }
+
+      print('📊 User has academic data: $hasAcademicData');
+
       return userMap;
     } catch (e) {
       print('❌ Error getting user from Hive: $e');
-      throw Exception('Failed to load user data: $e');
+      return null; // Return null instead of throwing
     }
   }
 
@@ -1275,6 +1368,107 @@ class ApiService {
   // ==================== COURSE METHODS ====================
 
   // Get courses for the logged in user based on their academic info
+  // Future<List<Course>> getCoursesForUser() async {
+  //   try {
+  //     print('📚 Getting courses for logged in user...');
+
+  //     // Get current user data
+  //     final userData = await getCurrentUser();
+  //     if (userData == null || userData['id'] == null) {
+  //       throw Exception("User not found. Please login again.");
+  //     }
+
+  //     // Extract user academic information
+  //     final userLevel = userData['level']?['id']?.toString();
+  //     final userDepartment = userData['department']?['id']?.toString();
+  //     final userUniversity = userData['university']?['id']?.toString();
+  //     final userSemester = userData['semester']?['id']?.toString();
+
+  //     // Validate that user has completed onboarding
+  //     if (userUniversity == null || userLevel == null || userSemester == null) {
+  //       throw Exception("Please complete your academic profile first.");
+  //     }
+
+  //     // Build query parameters
+  //     final params = <String, String>{};
+
+  //     // Always include university, level, and semester
+  //     params['university'] = userUniversity;
+  //     params['level'] = userLevel;
+  //     params['semester'] = userSemester;
+
+  //     // Department is optional (course can be for multiple departments)
+  //     if (userDepartment != null && userDepartment.isNotEmpty) {
+  //       params['department'] = userDepartment;
+  //     }
+
+  //     // Fetch courses from the API
+  //     final uri = Uri.parse('${ApiEndpoints.baseUrl}/api/academics/courses/');
+  //     final url = uri.replace(queryParameters: params);
+
+  //     print('🌐 Fetching courses from: $url');
+
+  //     final response = await http
+  //         .get(url, headers: {'Content-Type': 'application/json'})
+  //         .timeout(const Duration(seconds: 15));
+
+  //     print('📥 Courses response: ${response.statusCode}');
+  //     if (response.statusCode != 200) {
+  //       print('📥 Error body: ${response.body}');
+  //     }
+
+  //     if (response.statusCode == 200) {
+  //       final List<dynamic> data = json.decode(response.body);
+  //       print('✅ Successfully loaded ${data.length} courses');
+
+  //       // Parse courses from JSON
+  //       final courses = data.map((json) => Course.fromJson(json)).toList();
+
+  //       // Load user progress for each course
+  //       await _loadUserProgressForCourses(courses);
+
+  //       // Cache courses for offline use
+  //       await _cacheCourses(courses);
+
+  //       return courses;
+  //     } else if (response.statusCode == 404) {
+  //       // No courses found for this filter - return empty list
+  //       print('ℹ️ No courses found for the current filters');
+  //       return [];
+  //     } else {
+  //       final errorData = json.decode(response.body);
+  //       final error =
+  //           errorData['error'] ??
+  //           'Failed to load courses (Status: ${response.statusCode})';
+  //       throw Exception(error);
+  //     }
+  //   } on TimeoutException {
+  //     print('⏰ Request timeout - trying cached data');
+  //     // Try to load from cache
+  //     final cachedCourses = await _getCachedCourses();
+  //     if (cachedCourses.isNotEmpty) {
+  //       return cachedCourses;
+  //     }
+  //     throw Exception('Network timeout. Please check your connection.');
+  //   } catch (e) {
+  //     print('❌ Error getting courses for user: $e');
+
+  //     // Try to load from cache as fallback
+  //     try {
+  //       final cachedCourses = await _getCachedCourses();
+  //       if (cachedCourses.isNotEmpty) {
+  //         print('✅ Loaded ${cachedCourses.length} courses from cache');
+  //         return cachedCourses;
+  //       }
+  //     } catch (cacheError) {
+  //       print('⚠️ Could not load cached courses: $cacheError');
+  //     }
+
+  //     rethrow;
+  //   }
+  // }
+
+  // In api_service.dart - Update your getCoursesForUser method
   Future<List<Course>> getCoursesForUser() async {
     try {
       print('📚 Getting courses for logged in user...');
@@ -1282,29 +1476,59 @@ class ApiService {
       // Get current user data
       final userData = await getCurrentUser();
       if (userData == null || userData['id'] == null) {
-        throw Exception("User not found. Please login again.");
+        print('⚠️ User not found, returning empty list');
+        return []; // Return empty list instead of throwing
       }
 
-      // Extract user academic information
-      final userLevel = userData['level']?['id']?.toString();
-      final userDepartment = userData['department']?['id']?.toString();
-      final userUniversity = userData['university']?['id']?.toString();
-      final userSemester = userData['semester']?['id']?.toString();
+      // Extract user academic information with better null handling
+      String? userLevel;
+      String? userDepartment;
+      String? userUniversity;
+      String? userSemester;
+
+      // Try to get from nested objects first
+      if (userData['level'] is Map) {
+        userLevel = userData['level']['id']?.toString();
+      } else if (userData['level_id'] != null) {
+        userLevel = userData['level_id'].toString();
+      }
+
+      if (userData['department'] is Map) {
+        userDepartment = userData['department']['id']?.toString();
+      } else if (userData['department_id'] != null) {
+        userDepartment = userData['department_id'].toString();
+      }
+
+      if (userData['university'] is Map) {
+        userUniversity = userData['university']['id']?.toString();
+      } else if (userData['university_id'] != null) {
+        userUniversity = userData['university_id'].toString();
+      }
+
+      if (userData['semester'] is Map) {
+        userSemester = userData['semester']['id']?.toString();
+      } else if (userData['semester_id'] != null) {
+        userSemester = userData['semester_id'].toString();
+      }
 
       // Validate that user has completed onboarding
       if (userUniversity == null || userLevel == null || userSemester == null) {
-        throw Exception("Please complete your academic profile first.");
+        print('⚠️ User has incomplete academic profile:');
+        print('   - University: $userUniversity');
+        print('   - Level: $userLevel');
+        print('   - Semester: $userSemester');
+        print('   - Department: $userDepartment');
+
+        // Return empty list instead of throwing an error
+        return [];
       }
 
       // Build query parameters
       final params = <String, String>{};
-
-      // Always include university, level, and semester
       params['university'] = userUniversity;
       params['level'] = userLevel;
       params['semester'] = userSemester;
 
-      // Department is optional (course can be for multiple departments)
       if (userDepartment != null && userDepartment.isNotEmpty) {
         params['department'] = userDepartment;
       }
@@ -1320,43 +1544,31 @@ class ApiService {
           .timeout(const Duration(seconds: 15));
 
       print('📥 Courses response: ${response.statusCode}');
-      if (response.statusCode != 200) {
-        print('📥 Error body: ${response.body}');
-      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         print('✅ Successfully loaded ${data.length} courses');
 
-        // Parse courses from JSON
         final courses = data.map((json) => Course.fromJson(json)).toList();
-
-        // Load user progress for each course
         await _loadUserProgressForCourses(courses);
-
-        // Cache courses for offline use
         await _cacheCourses(courses);
 
         return courses;
       } else if (response.statusCode == 404) {
-        // No courses found for this filter - return empty list
         print('ℹ️ No courses found for the current filters');
         return [];
       } else {
-        final errorData = json.decode(response.body);
-        final error =
-            errorData['error'] ??
-            'Failed to load courses (Status: ${response.statusCode})';
-        throw Exception(error);
+        print('❌ Error loading courses: ${response.statusCode}');
+        print('📥 Response body: ${response.body}');
+        return []; // Return empty list on error
       }
     } on TimeoutException {
       print('⏰ Request timeout - trying cached data');
-      // Try to load from cache
       final cachedCourses = await _getCachedCourses();
       if (cachedCourses.isNotEmpty) {
         return cachedCourses;
       }
-      throw Exception('Network timeout. Please check your connection.');
+      return []; // Return empty list on timeout
     } catch (e) {
       print('❌ Error getting courses for user: $e');
 
@@ -1371,7 +1583,7 @@ class ApiService {
         print('⚠️ Could not load cached courses: $cacheError');
       }
 
-      rethrow;
+      return []; // Always return a list, never throw
     }
   }
 
@@ -2990,6 +3202,38 @@ class ApiService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getOutlinesForPastQuestions({
+    required int courseId,
+  }) async {
+    try {
+      final url = Uri.parse(
+        '${ApiEndpoints.baseUrl}/api/academics/course-outlines/?course=$courseId',
+      );
+
+      final response = await http
+          .get(url, headers: {'Content-Type': 'application/json'})
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+
+        return data
+            .map(
+              (item) => {
+                'id': item['id']?.toString() ?? '',
+                'title': item['title']?.toString() ?? '',
+              },
+            )
+            .where((o) => o['id']!.isNotEmpty)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error getting outlines: $e');
+      return [];
+    }
+  }
+
   // ###############################################################################################
   // #################### FOR TEST-QUESTIONS AND THINGS RELATED TO IT ##############################
 
@@ -3739,6 +3983,38 @@ class ApiService {
     } catch (e) {
       print('❌ Error getting topics for test questions: $e');
       rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getOutlinesForTestQuestions({
+    required int courseId,
+  }) async {
+    try {
+      final url = Uri.parse(
+        '${ApiEndpoints.baseUrl}/api/academics/course-outlines/?course=$courseId',
+      );
+
+      final response = await http
+          .get(url, headers: {'Content-Type': 'application/json'})
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+
+        return data
+            .map(
+              (item) => {
+                'id': item['id']?.toString() ?? '',
+                'title': item['title']?.toString() ?? '',
+              },
+            )
+            .where((o) => o['id']!.isNotEmpty)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error getting outlines: $e');
+      return [];
     }
   }
 

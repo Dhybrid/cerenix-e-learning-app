@@ -1,4 +1,6 @@
 // lib/features/popup/models/popup_advertisement.dart
+import '../../../core/constants/endpoints.dart';
+
 class PopupAdvertisement {
   final int id;
   final String? title;
@@ -202,11 +204,26 @@ class PopupAdvertisement {
   }
 
   // Get image display URL (handle relative URLs)
+  // String get displayImageUrl {
+  //   if (imageUrl.startsWith('http')) return imageUrl;
+  //   if (imageUrl.startsWith('/')) {
+  //     // Assuming you have a base URL constant
+  //     return 'http://127.0.0.1:8000$imageUrl'; // Adjust to your actual base URL
+  //   }
+  //   return imageUrl;
+  // }
+
+  // Get image display URL using base URL from endpoints
   String get displayImageUrl {
     if (imageUrl.startsWith('http')) return imageUrl;
     if (imageUrl.startsWith('/')) {
-      // Assuming you have a base URL constant
-      return 'http://127.0.0.1:8000$imageUrl'; // Adjust to your actual base URL
+      // Use baseUrl from endpoints without trailing slash
+      final baseUrl = ApiEndpoints.baseUrl;
+      // Remove trailing slash from baseUrl if present
+      final cleanBaseUrl = baseUrl.endsWith('/')
+          ? baseUrl.substring(0, baseUrl.length - 1)
+          : baseUrl;
+      return '$cleanBaseUrl$imageUrl';
     }
     return imageUrl;
   }

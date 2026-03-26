@@ -248,8 +248,8 @@ class _CBTSelectionScreenState extends State<CBTSelectionScreen> {
           if (courseData['past_questions'] != null) {
             final pastQuestions = courseData['past_questions'] as List;
             for (var pq in pastQuestions) {
-              if (pq is Map && pq['session'] != null) {
-                final sessionData = pq['session'];
+              if (pq is Map) {
+                final sessionData = pq['session_info'] ?? pq['session'];
                 if (sessionData is Map) {
                   final sessionId = sessionData['id']?.toString();
                   final sessionName = sessionData['name']?.toString();
@@ -335,110 +335,204 @@ class _CBTSelectionScreenState extends State<CBTSelectionScreen> {
     }
   }
 
+  // Future<void> _loadTopicsFromOfflineCourse(String courseId) async {
+  //   try {
+  //     print('📋 CBT: Loading offline topics for course: $courseId');
+
+  //     final offlineBox = await Hive.openBox(offlineCoursesBox);
+  //     final courseData = offlineBox.get('course_$courseId');
+
+  //     if (courseData == null) {
+  //       throw Exception('No offline data found for this course');
+  //     }
+
+  //     final topicsList = <Map<String, dynamic>>[];
+
+  //     // Extract topics from course topics
+  //     if (courseData['topics'] != null) {
+  //       final courseTopics = courseData['topics'] as List;
+  //       for (var topic in courseTopics) {
+  //         if (topic is Map) {
+  //           final topicId = topic['id']?.toString();
+  //           final topicTitle = topic['title']?.toString();
+  //           final outline = topic['outline_info'] ?? topic['outline'];
+
+  //           if (topicId != null && topicTitle != null) {
+  //             if (!topicsList.any((t) => t['id'] == topicId)) {
+  //               topicsList.add({
+  //                 'id': topicId,
+  //                 'title': topicTitle,
+  //                 'outlineTitle': outline is Map
+  //                     ? outline['title']?.toString()
+  //                     : 'No Outline',
+  //               });
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     // Extract topics from past questions
+  //     if (courseData['past_questions'] != null) {
+  //       final pastQuestions = courseData['past_questions'] as List;
+  //       for (var pq in pastQuestions) {
+  //         if (pq is Map && pq['topic'] != null) {
+  //           final topic = pq['topic'];
+  //           if (topic is Map) {
+  //             final topicId = topic['id']?.toString();
+  //             final topicTitle = topic['title']?.toString();
+  //             final outline = topic['outline_info'] ?? topic['outline'];
+
+  //             if (topicId != null && topicTitle != null) {
+  //               if (!topicsList.any((t) => t['id'] == topicId)) {
+  //                 topicsList.add({
+  //                   'id': topicId,
+  //                   'title': topicTitle,
+  //                   'outlineTitle': outline is Map
+  //                       ? outline['title']?.toString()
+  //                       : 'No Outline',
+  //                 });
+  //               }
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     // Extract topics from test questions
+  //     if (courseData['test_questions'] != null) {
+  //       final testQuestions = courseData['test_questions'] as List;
+  //       for (var tq in testQuestions) {
+  //         if (tq is Map && tq['topic'] != null) {
+  //           final topic = tq['topic'];
+  //           if (topic is Map) {
+  //             final topicId = topic['id']?.toString();
+  //             final topicTitle = topic['title']?.toString();
+  //             final outline = topic['outline_info'] ?? topic['outline'];
+
+  //             if (topicId != null && topicTitle != null) {
+  //               if (!topicsList.any((t) => t['id'] == topicId)) {
+  //                 topicsList.add({
+  //                   'id': topicId,
+  //                   'title': topicTitle,
+  //                   'outlineTitle': outline is Map
+  //                       ? outline['title']?.toString()
+  //                       : 'No Outline',
+  //                 });
+  //               }
+  //             }
+  //           }
+  //         }
+  //       }
+  //     }
+
+  //     // Sort topics by title
+  //     topicsList.sort((a, b) => (a['title'] ?? '').compareTo(b['title'] ?? ''));
+
+  //     print('📚 CBT: Extracted ${topicsList.length} unique topics');
+
+  //     setState(() {
+  //       _topics = topicsList;
+
+  //       if (topicsList.isEmpty) {
+  //         _topicError = 'No topics found in offline data';
+  //       } else {
+  //         _topicError = null;
+  //       }
+  //     });
+  //   } catch (e) {
+  //     print('❌ CBT: Error loading offline topics: $e');
+  //     setState(() {
+  //       _topicError = 'Error loading topics from offline data';
+  //       _topics = [];
+  //     });
+  //   }
+  // }
+
   Future<void> _loadTopicsFromOfflineCourse(String courseId) async {
     try {
       print('📋 CBT: Loading offline topics for course: $courseId');
+
+      setState(() {
+        _loadingTopics = true;
+        _topics.clear();
+        _selectedTopicId = null;
+        _topicError = null;
+      });
 
       final offlineBox = await Hive.openBox(offlineCoursesBox);
       final courseData = offlineBox.get('course_$courseId');
 
       if (courseData == null) {
-        throw Exception('No offline data found for this course');
+        setState(() => _topicError = 'No offline data found for this course');
+        return;
       }
 
-      final topicsList = <Map<String, dynamic>>[];
+      final outlinesList = <Map<String, dynamic>>[];
+      final seenIds = <String>{};
 
-      // Extract topics from course topics
-      if (courseData['topics'] != null) {
-        final courseTopics = courseData['topics'] as List;
-        for (var topic in courseTopics) {
-          if (topic is Map) {
-            final topicId = topic['id']?.toString();
-            final topicTitle = topic['title']?.toString();
-            final outline = topic['outline_info'] ?? topic['outline'];
-
-            if (topicId != null && topicTitle != null) {
-              if (!topicsList.any((t) => t['id'] == topicId)) {
-                topicsList.add({
-                  'id': topicId,
-                  'title': topicTitle,
-                  'outlineTitle': outline is Map
-                      ? outline['title']?.toString()
-                      : 'No Outline',
-                });
-              }
+      // Extract outline info from topic_info in past_questions
+      final pastQuestions = courseData['past_questions'];
+      if (pastQuestions != null) {
+        for (var pq in pastQuestions as List) {
+          if (pq is! Map) continue;
+          final topicInfo = pq['topic_info'];
+          if (topicInfo is Map) {
+            final id = topicInfo['id']?.toString();
+            final title = topicInfo['title']?.toString();
+            if (id != null && title != null && !seenIds.contains(id)) {
+              seenIds.add(id);
+              outlinesList.add({'id': id, 'title': title});
             }
           }
         }
       }
 
-      // Extract topics from past questions
-      if (courseData['past_questions'] != null) {
-        final pastQuestions = courseData['past_questions'] as List;
-        for (var pq in pastQuestions) {
-          if (pq is Map && pq['topic'] != null) {
-            final topic = pq['topic'];
-            if (topic is Map) {
-              final topicId = topic['id']?.toString();
-              final topicTitle = topic['title']?.toString();
-              final outline = topic['outline_info'] ?? topic['outline'];
-
-              if (topicId != null && topicTitle != null) {
-                if (!topicsList.any((t) => t['id'] == topicId)) {
-                  topicsList.add({
-                    'id': topicId,
-                    'title': topicTitle,
-                    'outlineTitle': outline is Map
-                        ? outline['title']?.toString()
-                        : 'No Outline',
-                  });
-                }
-              }
+      // Also extract from topic_info in test_questions
+      final testQuestions = courseData['test_questions'];
+      if (testQuestions != null) {
+        for (var tq in testQuestions as List) {
+          if (tq is! Map) continue;
+          final topicInfo = tq['topic_info'];
+          if (topicInfo is Map) {
+            final id = topicInfo['id']?.toString();
+            final title = topicInfo['title']?.toString();
+            if (id != null && title != null && !seenIds.contains(id)) {
+              seenIds.add(id);
+              outlinesList.add({'id': id, 'title': title});
             }
           }
         }
       }
 
-      // Extract topics from test questions
-      if (courseData['test_questions'] != null) {
-        final testQuestions = courseData['test_questions'] as List;
-        for (var tq in testQuestions) {
-          if (tq is Map && tq['topic'] != null) {
-            final topic = tq['topic'];
-            if (topic is Map) {
-              final topicId = topic['id']?.toString();
-              final topicTitle = topic['title']?.toString();
-              final outline = topic['outline_info'] ?? topic['outline'];
-
-              if (topicId != null && topicTitle != null) {
-                if (!topicsList.any((t) => t['id'] == topicId)) {
-                  topicsList.add({
-                    'id': topicId,
-                    'title': topicTitle,
-                    'outlineTitle': outline is Map
-                        ? outline['title']?.toString()
-                        : 'No Outline',
-                  });
-                }
-              }
+      // Fallback: extract from topics[].outline_info
+      if (outlinesList.isEmpty && courseData['topics'] != null) {
+        for (var topic in courseData['topics'] as List) {
+          if (topic is! Map) continue;
+          final outlineInfo = topic['outline_info'] ?? topic['outline'];
+          if (outlineInfo is Map) {
+            final id = outlineInfo['id']?.toString();
+            final title = outlineInfo['title']?.toString();
+            if (id != null && title != null && !seenIds.contains(id)) {
+              seenIds.add(id);
+              outlinesList.add({'id': id, 'title': title});
             }
           }
         }
       }
 
-      // Sort topics by title
-      topicsList.sort((a, b) => (a['title'] ?? '').compareTo(b['title'] ?? ''));
+      // Sort by title
+      outlinesList.sort(
+        (a, b) => (a['title'] ?? '').compareTo(b['title'] ?? ''),
+      );
 
-      print('📚 CBT: Extracted ${topicsList.length} unique topics');
+      print('📚 CBT: Extracted ${outlinesList.length} unique outlines');
 
       setState(() {
-        _topics = topicsList;
-
-        if (topicsList.isEmpty) {
-          _topicError = 'No topics found in offline data';
-        } else {
-          _topicError = null;
-        }
+        _topics = outlinesList;
+        _topicError = outlinesList.isEmpty
+            ? 'No outlines found in downloaded data'
+            : null;
       });
     } catch (e) {
       print('❌ CBT: Error loading offline topics: $e');
@@ -446,6 +540,8 @@ class _CBTSelectionScreenState extends State<CBTSelectionScreen> {
         _topicError = 'Error loading topics from offline data';
         _topics = [];
       });
+    } finally {
+      if (mounted) setState(() => _loadingTopics = false);
     }
   }
 

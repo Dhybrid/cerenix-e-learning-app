@@ -10,7 +10,6 @@ import 'package:uuid/uuid.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 import '../../../core/constants/endpoints.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 class VoiceChatScreen extends StatefulWidget {
   const VoiceChatScreen({super.key});
@@ -22,12 +21,16 @@ class VoiceChatScreen extends StatefulWidget {
 class _VoiceChatScreenState extends State<VoiceChatScreen> {
   // State management
   late VoiceChatState _state = VoiceChatState.initializing;
-  bool _showBoard = false;
   String _boardContent = '';
   String _sessionId = const Uuid().v4();
   String _conversationHistory = '';
   String _recognizedText = '';
   String _fullSessionText = '';
+  String _latestAiReply = '';
+  String _currentSpokenText = '';
+  String _activeSpeechChunk = '';
+  bool _isPlayingLongResponse = false;
+  bool _ttsConfigured = false;
 
   // Speech services
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -44,6 +47,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   // Configuration
   static const _silenceTimeout = Duration(seconds: 3); 
   static const _maxRestartAttempts = 30;
+  static const _ttsChunkLength = 360;
 
   @override
   void initState() {
@@ -68,17 +72,14 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
         throw Exception('Speech recognition not available');
       }
 
-      // Initialize TTS
-      await _tts.setLanguage("en-US");
-      await _tts.setSpeechRate(0.7);
-      await _tts.setVolume(1.0);
-      await _tts.setPitch(1.1);
-
       // Check permissions
       final micStatus = await Permission.microphone.request();
       if (!micStatus.isGranted) {
         throw Exception('Microphone permission required');
       }
+
+      await _warmUpSpeechRecognition();
+      await _configureTts();
 
       // Setup TTS callbacks
       _tts.setStartHandler(() {
@@ -87,11 +88,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
         }
       });
 
-      _tts.setCompletionHandler(() {
-        if (mounted) {
-          setState(() => _state = VoiceChatState.ready);
-        }
-      });
+      _tts.setCompletionHandler(() {});
 
       _tts.setErrorHandler((msg) {
         print('TTS error: $msg');
@@ -115,6 +112,55 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     }
   }
 
+  Future<void> _configureTts() async {
+    if (_ttsConfigured) return;
+
+    await _tts.awaitSpeakCompletion(true);
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.42);
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(0.96);
+
+    _tts.setProgressHandler((text, start, end, word) {
+      if (!mounted || _activeSpeechChunk.isEmpty) return;
+
+      final safeStart = start.clamp(0, _activeSpeechChunk.length);
+      final safeEnd = end.clamp(safeStart, _activeSpeechChunk.length);
+      final currentSlice = _activeSpeechChunk.substring(safeStart, safeEnd).trim();
+
+      if (currentSlice.isNotEmpty) {
+        setState(() {
+          _currentSpokenText = currentSlice;
+        });
+      }
+    });
+
+    _ttsConfigured = true;
+  }
+
+  Future<void> _warmUpSpeechRecognition() async {
+    try {
+      await _speech.listen(
+        onResult: (_) {},
+        listenMode: stt.ListenMode.dictation,
+        localeId: 'en-US',
+        cancelOnError: false,
+        partialResults: false,
+        listenFor: const Duration(milliseconds: 600),
+        pauseFor: const Duration(milliseconds: 600),
+      );
+      await Future.delayed(const Duration(milliseconds: 150));
+    } catch (_) {
+      // Ignore warmup issues and continue with normal initialization.
+    } finally {
+      try {
+        await _speech.stop();
+      } catch (_) {
+        // Ignore cleanup issues during warmup.
+      }
+    }
+  }
+
   void _onSpeechStatus(String status) {
     // This handler runs when engine status changes (e.g., "listening", "notListening", etc)
     print('Speech status callback: $status');
@@ -130,6 +176,19 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     }
   }
 
+  void _ensureListeningStaysAlive() {
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer(const Duration(seconds: 4), () {
+      if (!_isContinuousListening || _userStopped || _state != VoiceChatState.listening) {
+        return;
+      }
+
+      if (!_speech.isListening) {
+        _restartSpeechRecognition();
+      }
+    });
+  }
+
   void _speakGreeting() async {
     if (_state != VoiceChatState.ready) return;
 
@@ -138,12 +197,16 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     setState(() {
       _boardContent = greeting;
       _conversationHistory = 'AI: $greeting\n\n';
+      _latestAiReply = greeting;
+      _currentSpokenText = greeting;
     });
 
     await _speakText(greeting);
   }
 
   Future<void> _speakText(String text) async {
+    await _configureTts();
+
     if (_state == VoiceChatState.aiSpeaking) {
       await _tts.stop();
     }
@@ -151,22 +214,118 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     final cleanText = _cleanTextForTTS(text);
     if (cleanText.isEmpty) return;
 
-    await _tts.speak(cleanText);
+    if (mounted) {
+      setState(() {
+        _latestAiReply = text;
+      });
+    }
+
+    await _speakLongText(cleanText);
   }
 
   String _cleanTextForTTS(String text) {
     String cleaned = text;
 
-    // Remove markdown and code blocks
-    cleaned = cleaned.replaceAll(RegExp(r'```[\s\S]*?```'), 'Code example');
-    cleaned = cleaned.replaceAll(RegExp(r'`([^`]+)`'), 'code');
+    cleaned = cleaned.replaceAll(RegExp(r'```[\s\S]*?```'), ' Here is a code example. ');
+    cleaned = cleaned.replaceAll(RegExp(r'!\[[^\]]*\]\([^)]+\)'), ' The illustration is shown on your screen. ');
+    cleaned = cleaned.replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), ' The illustration is shown on your screen. ');
+    cleaned = cleaned.replaceAll(RegExp(r'`([^`]+)`'), ' code ');
+    cleaned = cleaned.replaceAll(RegExp(r'\$\$[\s\S]*?\$\$'), ' The formula is shown on your screen. ');
     cleaned = cleaned.replaceAll(RegExp(r'#+\s*'), '');
     cleaned = cleaned.replaceAll(RegExp(r'\*\*|\*|__|_'), '');
     cleaned = cleaned.replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1');
+    cleaned = cleaned.replaceAll(RegExp(r'\$[^$]*?\$'), ' The formula is shown on your screen. ');
+    cleaned = cleaned.replaceAll(RegExp(r'\\\((.*?)\\\)'), ' The formula is shown on your screen. ');
+    cleaned = cleaned.replaceAll(RegExp(r'\\\[(.*?)\\\]'), ' The formula is shown on your screen. ');
+    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F300}-\u{1FAFF}]', unicode: true), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'[\u{2600}-\u{27BF}]', unicode: true), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'[|•●■◆★☆◦▪▶►]+'), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'[{}<>]+'), ' ');
+    cleaned = cleaned.replaceAll(
+      RegExp(
+        r'\b(?:diagram|illustration|figure|image|chart|graph)\b\s*:?',
+        caseSensitive: false,
+      ),
+      ' visual ',
+    );
+    cleaned = cleaned.replaceAll(RegExp(r'^\s*[*-]\s+', multiLine: true), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'^\s*\d+\.\s+', multiLine: true), ' ');
+    cleaned = cleaned.replaceAll(RegExp(r'\n{2,}'), '. ');
+    cleaned = cleaned.replaceAll('\n', ' ');
+    cleaned = cleaned.replaceAll(';', '. ');
 
-    // Clean up whitespace
     cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ');
     return cleaned.trim();
+  }
+
+  Future<void> _speakLongText(String text) async {
+    final chunks = _splitTextForSpeech(text);
+    _isPlayingLongResponse = true;
+
+    for (final chunk in chunks) {
+      if (chunk.trim().isEmpty) continue;
+
+      _activeSpeechChunk = chunk;
+
+      if (mounted) {
+        setState(() {
+          _state = VoiceChatState.aiSpeaking;
+          _currentSpokenText = chunk;
+        });
+      }
+
+      try {
+        await _tts.speak(chunk);
+      } catch (e) {
+        print('TTS chunk error: $e');
+        break;
+      }
+
+      await Future.delayed(const Duration(milliseconds: 60));
+
+      if (_state != VoiceChatState.aiSpeaking) {
+        break;
+      }
+    }
+
+    _activeSpeechChunk = '';
+    _isPlayingLongResponse = false;
+
+    if (mounted &&
+        _state != VoiceChatState.listening &&
+        _state != VoiceChatState.processing) {
+      setState(() => _state = VoiceChatState.ready);
+    }
+  }
+
+  List<String> _splitTextForSpeech(String text) {
+    final sentences = text
+        .split(RegExp(r'(?<=[.!?])\s+'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+
+    if (sentences.isEmpty) return [text];
+
+    final chunks = <String>[];
+    var current = '';
+
+    for (final sentence in sentences) {
+      if ((current.length + sentence.length + 1) > _ttsChunkLength) {
+        if (current.isNotEmpty) {
+          chunks.add(current.trim());
+        }
+        current = sentence;
+      } else {
+        current = current.isEmpty ? sentence : '$current $sentence';
+      }
+    }
+
+    if (current.isNotEmpty) {
+      chunks.add(current.trim());
+    }
+
+    return chunks;
   }
 
   void _startContinuousListening() async {
@@ -184,6 +343,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       _userStopped = false;
       _speechRestartCount = 0;
       _boardContent = '🎤 Listening continuously...\n\nSpeak now. I will keep listening.\n\nClick red button when done.';
+      _currentSpokenText = '';
     });
 
     // Start initial recognition
@@ -196,6 +356,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     print('Starting speech recognition... (attempt ${_speechRestartCount + 1})');
 
     try {
+      if (_speech.isListening) {
+        await _speech.stop();
+      }
+
       // Listen. We request a very long listenFor duration and set partialResults true.
       // We also rely on onStatus callback to detect 'notListening' and restart.
       await _speech.listen(
@@ -236,24 +400,21 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
           }
 
           // (Optional) reset silence timer to keep track of pauses - not used to stop listening
-          _silenceTimer?.cancel();
-          _silenceTimer = Timer(_silenceTimeout, () {
-            print('Detected a short silence (but will continue listening).');
-            // Do nothing – we intentionally continue listening.
-          });
+          _ensureListeningStaysAlive();
         },
         listenMode: stt.ListenMode.dictation,
         localeId: "en-US",
-        cancelOnError: true,
+        cancelOnError: false,
         partialResults: true,
         // Request long segments. If underlying platform imposes max length, onStatus will detect 'notListening'
         // and our restart logic will pick up.
         listenFor: const Duration(minutes: 30),
         // pauseFor tries to control auto-pause behavior; keep reasonably long so short pauses don't stop the engine.
         // NOTE: This may be ignored by the underlying OS/platform.
-        pauseFor: const Duration(seconds: 5),
+        pauseFor: const Duration(seconds: 30),
       );
 
+      _speechRestartCount = 0;
       print('Speech recognition started successfully');
     } catch (e) {
       print('Error starting speech recognition: $e');
@@ -298,7 +459,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
     // Cancel any pending timers and schedule a short restart
     _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 300), () async {
+    _restartTimer = Timer(const Duration(milliseconds: 120), () async {
       // Ensure the engine is stopped before trying to restart to avoid conflicts
       try {
         if (_speech.isListening) {
@@ -403,6 +564,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
         setState(() {
           _boardContent = reply;
           _conversationHistory += 'AI: $reply\n\n';
+          _latestAiReply = reply;
+          _currentSpokenText = reply;
           _state = VoiceChatState.aiSpeaking;
         });
 
@@ -451,15 +614,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     });
   }
 
-  void _toggleBoard() {
-    setState(() {
-      _showBoard = !_showBoard;
-      if (_showBoard) {
-        _scrollToBottom();
-      }
-    });
-  }
-
   void _resetChat() {
     _sessionId = const Uuid().v4();
     _conversationHistory = '';
@@ -480,6 +634,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     setState(() {
       _state = VoiceChatState.ready;
       _boardContent = 'Ready for a new conversation!';
+      _latestAiReply = '';
+      _currentSpokenText = '';
     });
     _speakText('New conversation started. How can I help you?');
   }
@@ -503,21 +659,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
                 _buildUserControls(),
               ],
             ),
-
-            // Floating Board Button
-            if (_state != VoiceChatState.initializing)
-              Positioned(
-                right: 20,
-                bottom: 130,
-                child: _buildFloatingButton(
-                  icon: Icons.preview_rounded,
-                  color: const Color(0xFF6366F1),
-                  onTap: _toggleBoard,
-                ),
-              ),
-
-            // Lecture Board
-            if (_showBoard) _buildLectureBoard(),
           ],
         ),
       ),
@@ -817,43 +958,51 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   }
 
   Widget _buildUserControls() {
+    final canTapMic = _canInteractWithMic();
+
     return Container(
       height: 150,
       padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          GestureDetector(
-            onTap: () {
-              if (_state == VoiceChatState.listening) {
-                _stopContinuousListening();
-              } else if (_state == VoiceChatState.ready || _state == VoiceChatState.error) {
-                _startContinuousListening();
-              } else if (_state == VoiceChatState.aiSpeaking) {
-                // interrupt AI speaking and start listening
-                _tts.stop();
-                _startContinuousListening();
-              }
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: _getMicButtonGradient(),
-                boxShadow: [
-                  BoxShadow(
-                    color: _getMicButtonColor().withOpacity(0.8),
-                    blurRadius: 20,
-                    spreadRadius: 5,
+          AbsorbPointer(
+            absorbing: !canTapMic,
+            child: Opacity(
+              opacity: canTapMic ? 1 : 0.45,
+              child: GestureDetector(
+                onTap: () {
+                  if (_state == VoiceChatState.listening) {
+                    _stopContinuousListening();
+                  } else if (_state == VoiceChatState.ready || _state == VoiceChatState.error) {
+                    _startContinuousListening();
+                  } else if (_state == VoiceChatState.aiSpeaking) {
+                    // interrupt AI speaking and start listening
+                    _tts.stop();
+                    _startContinuousListening();
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: _getMicButtonGradient(),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _getMicButtonColor().withOpacity(0.8),
+                        blurRadius: 20,
+                        spreadRadius: 5,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Icon(
-                _state == VoiceChatState.listening ? Icons.stop_rounded : Icons.mic_rounded,
-                color: Colors.white,
-                size: 36,
+                  child: Icon(
+                    _state == VoiceChatState.listening ? Icons.stop_rounded : Icons.mic_rounded,
+                    color: Colors.white,
+                    size: 36,
+                  ),
+                ),
               ),
             ),
           ),
@@ -869,6 +1018,13 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
   LinearGradient _getMicButtonGradient() {
     switch (_state) {
+      case VoiceChatState.initializing:
+      case VoiceChatState.processing:
+        return const LinearGradient(
+          colors: [Color(0xFF475569), Color(0xFF334155)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        );
       case VoiceChatState.listening:
         return const LinearGradient(
           colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
@@ -893,6 +1049,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
   Color _getMicButtonColor() {
     switch (_state) {
+      case VoiceChatState.initializing:
+      case VoiceChatState.processing:
+        return const Color(0xFF475569);
       case VoiceChatState.listening:
         return const Color(0xFFEF4444);
       case VoiceChatState.ready:
@@ -906,11 +1065,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   String _getMicButtonText() {
     switch (_state) {
       case VoiceChatState.initializing:
-        return 'Initializing...';
+        return 'Preparing microphone...';
       case VoiceChatState.listening:
         return 'CLICK TO STOP & SEND';
       case VoiceChatState.processing:
-        return 'Processing...';
+        return 'Please wait...';
       case VoiceChatState.aiSpeaking:
         return 'AI Speaking - Tap to interrupt';
       case VoiceChatState.ready:
@@ -920,113 +1079,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     }
   }
 
-  Widget _buildFloatingButton({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.5),
-              blurRadius: 10,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: Icon(icon, color: Colors.white, size: 22),
-      ),
-    );
-  }
-
-  Widget _buildLectureBoard() {
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withOpacity(0.95),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1A1A2E),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(20),
-                  bottomRight: Radius.circular(20),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.school_rounded, color: Color(0xFF10B981), size: 24),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Preview Panel',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 24),
-                    color: Colors.white,
-                    onPressed: _toggleBoard,
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2D2D44),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: SingleChildScrollView(
-                  controller: _boardScrollController,
-                  physics: const BouncingScrollPhysics(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: MarkdownBody(
-                      data: _boardContent,
-                      selectable: true,
-                      styleSheet: MarkdownStyleSheet(
-                        p: const TextStyle(
-                          fontSize: 16,
-                          height: 1.6,
-                          color: Colors.white,
-                        ),
-                        strong: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                        em: const TextStyle(
-                          fontStyle: FontStyle.italic,
-                          color: Colors.white,
-                        ),
-                        code: TextStyle(
-                          backgroundColor: Colors.grey[800],
-                          color: Colors.white,
-                          fontFamily: 'Monospace',
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  bool _canInteractWithMic() {
+    return _state != VoiceChatState.initializing &&
+        _state != VoiceChatState.processing;
   }
 
   @override
