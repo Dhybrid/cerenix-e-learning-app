@@ -72,8 +72,8 @@ dependencies:
   url_launcher: ^6.1.11
   # flutter_html: ^3.0.0-beta.2
   flutter_html: ^3.0.0
-  # youtube_player_flutter: ^8.1.2
-  youtube_player_flutter: 8.0.0
+  youtube_player_flutter:
+    path: third_party/youtube_player_flutter
   cached_network_image: ^3.3.0
   # youtube_player_iframe: ^3.1.0+1
   youtube_player_iframe: ^5.2.2
@@ -138,7 +138,6 @@ flutter:
     - assets/images/waveAI.gif
     - assets/images/cerenixSplash.png
     - assets/images/advertboard.jpeg
-    - assets/images/profilePicture.jpg
     - assets/images/courses.jpeg
     - assets/images/cerenixiconlittleone.png
     - assets/lottie/Video.json
@@ -153,6 +152,11 @@ flutter:
     - assets/images/voice1.jpg
     - assets/images/progress.jpg
     - assets/images/progress2.jpg
+    - assets/images/cerenixVoiceAssistance.png
+    - assets/images/cerenix_voice_interaction.jpg
+    - assets/images/cerenixProgress.png
+    - assets/images/cerenix_progress.jpeg
+    - assets/images/cerenix_courses.png
 
 
 flutter_native_splash:

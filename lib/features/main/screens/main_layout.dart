@@ -1,5 +1,6 @@
 // lib/features/main/screens/main_layout.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../home/screens/home_screen.dart';
 
 // Import the screens without creating duplicate names
@@ -50,23 +51,99 @@ class _MainLayoutState extends State<MainLayout> {
     Navigator.pushNamed(context, route);
   }
 
+  Future<void> _handleRootBackNavigation() async {
+    if (_showAIOptions) {
+      setState(() {
+        _showAIOptions = false;
+      });
+      return;
+    }
+
+    if (_currentIndex != 0) {
+      setState(() {
+        _currentIndex = 0;
+      });
+      return;
+    }
+
+    final shouldExit = await _showExitConfirmation();
+    if (shouldExit && mounted) {
+      await SystemNavigator.pop();
+    }
+  }
+
+  Future<bool> _showExitConfirmation() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? const Color(0xFF101A2B) : Colors.white;
+    final titleColor = isDark
+        ? const Color(0xFFF8FAFC)
+        : const Color(0xFF111827);
+    final bodyColor = isDark
+        ? const Color(0xFFCBD5E1)
+        : const Color(0xFF4B5563);
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: surface,
+          title: Text(
+            'Exit Cerenix?',
+            style: TextStyle(color: titleColor, fontWeight: FontWeight.w700),
+          ),
+          content: Text(
+            'Do you want to close the app?',
+            style: TextStyle(color: bodyColor),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Stay'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Exit'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: Stack(
-        children: [
-          _screens[_currentIndex],
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-          // AI Options Panel - Overlay on top of everything
-          if (_showAIOptions) _buildAIOptionsOverlay(),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          return;
+        }
+        await _handleRootBackNavigation();
+      },
+      child: Scaffold(
+        backgroundColor: isDark
+            ? const Color(0xFF09111F)
+            : const Color(0xFFF8FAFC),
+        body: Stack(
+          children: [
+            _screens[_currentIndex],
+
+            // AI Options Panel - Overlay on top of everything
+            if (_showAIOptions) _buildAIOptionsOverlay(),
+          ],
+        ),
+        bottomNavigationBar: _buildBottomNav(),
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
   Widget _buildAIOptionsOverlay() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Positioned.fill(
       child: GestureDetector(
         onTap: () {
@@ -75,7 +152,7 @@ class _MainLayoutState extends State<MainLayout> {
           });
         },
         child: Container(
-          color: Colors.black.withOpacity(0.2),
+          color: Colors.black.withOpacity(isDark ? 0.38 : 0.2),
           child: Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
@@ -129,6 +206,15 @@ class _MainLayoutState extends State<MainLayout> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final surface = scheme.surface;
+    final titleColor = scheme.onSurface;
+    final subtitleColor =
+        theme.textTheme.bodySmall?.color ??
+        (isDark ? const Color(0xFFCBD5E1) : const Color(0xFF6B7280));
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -138,7 +224,7 @@ class _MainLayoutState extends State<MainLayout> {
           // ADJUST THIS VALUE: Reduce padding to make options shorter
           padding: const EdgeInsets.all(10), // REDUCED FROM 12
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: surface,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -154,12 +240,12 @@ class _MainLayoutState extends State<MainLayout> {
                 // ADJUST THIS VALUE: Reduce icon container padding
                 padding: const EdgeInsets.all(8), // REDUCED FROM 10
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B35).withOpacity(0.1),
+                  color: scheme.secondary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
-                  color: const Color(0xFFFF6B35),
+                  color: scheme.secondary,
                   size: 20, // REDUCED FROM 22
                 ),
               ),
@@ -171,19 +257,19 @@ class _MainLayoutState extends State<MainLayout> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13, // REDUCED FROM 14
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1A2E),
+                        color: titleColor,
                       ),
                     ),
                     // ADJUST THIS VALUE: Reduce space between title and subtitle
                     const SizedBox(height: 1), // REDUCED FROM 2
                     Text(
                       subtitle,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10, // REDUCED FROM 11
-                        color: Color(0xFF6B7280),
+                        color: subtitleColor,
                       ),
                     ),
                   ],
@@ -202,12 +288,16 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   Widget _buildBottomNav() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(isDark ? 0.24 : 0.1),
             blurRadius: 15,
             offset: const Offset(0, -2),
           ),
@@ -234,6 +324,8 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   Widget _buildAIFloatingButton() {
+    final scheme = Theme.of(context).colorScheme;
+
     return GestureDetector(
       onTap: () => _onItemTapped(2),
       child: Column(
@@ -250,10 +342,10 @@ class _MainLayoutState extends State<MainLayout> {
                       end: Alignment.bottomRight,
                       colors: [Color(0xFFFF6B35), Color(0xFFFF8E50)],
                     )
-                  : const LinearGradient(
+                  : LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [Color(0xFF0077B6), Color(0xFF0096C7)],
+                      colors: [scheme.primary, scheme.primaryContainer],
                     ),
               shape: BoxShape.circle,
               boxShadow: [
@@ -261,8 +353,8 @@ class _MainLayoutState extends State<MainLayout> {
                   color:
                       (_showAIOptions
                               ? const Color(0xFFFF6B35)
-                              : const Color(0xFF0077B6))
-                          .withOpacity(0.3),
+                              : scheme.primary)
+                          .withValues(alpha: 0.3),
                   blurRadius: 8,
                   offset: const Offset(0, 3),
                 ),
@@ -282,7 +374,7 @@ class _MainLayoutState extends State<MainLayout> {
               fontWeight: _showAIOptions ? FontWeight.w600 : FontWeight.normal,
               color: _showAIOptions
                   ? const Color(0xFFFF6B35)
-                  : const Color(0xFF9CA3AF),
+                  : Theme.of(context).textTheme.bodySmall?.color,
             ),
           ),
         ],
@@ -292,6 +384,9 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _navItem(IconData icon, String label, int index) {
     final isActive = _currentIndex == index;
+    final scheme = Theme.of(context).colorScheme;
+    final inactiveColor =
+        Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFF9CA3AF);
 
     return GestureDetector(
       onTap: () => _onItemTapped(index),
@@ -300,7 +395,7 @@ class _MainLayoutState extends State<MainLayout> {
         children: [
           Icon(
             icon,
-            color: isActive ? const Color(0xFF0077B6) : const Color(0xFF9CA3AF),
+            color: isActive ? scheme.primary : inactiveColor,
             size: 24, // REDUCED FROM 26
           ),
           const SizedBox(height: 2), // REDUCED FROM 4
@@ -309,9 +404,7 @@ class _MainLayoutState extends State<MainLayout> {
             style: TextStyle(
               fontSize: 11, // REDUCED FROM 12
               fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-              color: isActive
-                  ? const Color(0xFF0077B6)
-                  : const Color(0xFF9CA3AF),
+              color: isActive ? scheme.primary : inactiveColor,
             ),
           ),
         ],

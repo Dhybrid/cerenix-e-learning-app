@@ -36,6 +36,19 @@ class _TestQuestionsSelectionScreenState
 
   static const String offlineCoursesBox = 'offline_courses';
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF1A1A2E);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF6B7280);
+
   @override
   void initState() {
     super.initState();
@@ -303,15 +316,15 @@ class _TestQuestionsSelectionScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: _pageBackground,
       appBar: AppBar(
         title: const Text(
           'Test Questions',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: _surfaceColor,
         elevation: 1,
-        foregroundColor: const Color(0xFF1A1A2E),
+        foregroundColor: _titleColor,
       ),
       body: _isLoading && _courses.isEmpty && _sessions.isEmpty
           ? const Center(
@@ -322,18 +335,18 @@ class _TestQuestionsSelectionScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Practice Test Questions',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
+                      color: _titleColor,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Select filters and start practicing offline',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 14, color: _bodyColor),
                   ),
                   const SizedBox(height: 24),
 
@@ -344,13 +357,21 @@ class _TestQuestionsSelectionScreenState
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
                       color: _hasOfflineCourses
-                          ? Colors.green.withOpacity(0.08)
-                          : Colors.orange.withOpacity(0.08),
+                          ? Colors.green.withValues(
+                              alpha: _isDark ? 0.16 : 0.08,
+                            )
+                          : Colors.orange.withValues(
+                              alpha: _isDark ? 0.16 : 0.08,
+                            ),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: _hasOfflineCourses
-                            ? Colors.green.withOpacity(0.3)
-                            : Colors.orange.withOpacity(0.3),
+                            ? Colors.green.withValues(
+                                alpha: _isDark ? 0.35 : 0.3,
+                              )
+                            : Colors.orange.withValues(
+                                alpha: _isDark ? 0.35 : 0.3,
+                              ),
                       ),
                     ),
                     child: Row(
@@ -388,7 +409,7 @@ class _TestQuestionsSelectionScreenState
                                     : 'Please download courses when online to access test questions.',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade700,
+                                  color: _bodyColor,
                                 ),
                               ),
                             ],
@@ -402,11 +423,14 @@ class _TestQuestionsSelectionScreenState
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: _surfaceColor,
                       borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _borderColor),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(
+                            alpha: _isDark ? 0.22 : 0.05,
+                          ),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -415,7 +439,7 @@ class _TestQuestionsSelectionScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
                             Icon(
                               Icons.settings_rounded,
@@ -428,7 +452,7 @@ class _TestQuestionsSelectionScreenState
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF1A1A2E),
+                                color: _titleColor,
                               ),
                             ),
                           ],
@@ -534,14 +558,14 @@ class _TestQuestionsSelectionScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: value ? activeColor.withOpacity(0.3) : Colors.grey.shade200,
+          color: value ? activeColor.withValues(alpha: 0.35) : _borderColor,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -553,8 +577,8 @@ class _TestQuestionsSelectionScreenState
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: value
-                  ? activeColor.withOpacity(0.1)
-                  : Colors.grey.shade100,
+                  ? activeColor.withValues(alpha: 0.14)
+                  : _secondarySurfaceColor,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
@@ -570,10 +594,10 @@ class _TestQuestionsSelectionScreenState
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
-                    color: Color(0xFF1F2937),
+                    color: _titleColor,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -581,7 +605,7 @@ class _TestQuestionsSelectionScreenState
                   subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade600,
+                    color: _bodyColor,
                     height: 1.4,
                   ),
                 ),
@@ -605,25 +629,25 @@ class _TestQuestionsSelectionScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(left: 4, bottom: 6),
           child: Text(
             'Academic Session',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF374151),
+              color: _titleColor,
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _surfaceColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: _borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -676,7 +700,7 @@ class _TestQuestionsSelectionScreenState
                         Expanded(
                           child: Text(
                             session.name,
-                            style: const TextStyle(fontSize: 14),
+                            style: TextStyle(fontSize: 14, color: _titleColor),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -710,7 +734,7 @@ class _TestQuestionsSelectionScreenState
                   _sessions.isEmpty
                       ? 'No sessions available'
                       : 'Select Session',
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: _bodyColor),
                 ),
               ),
             ),
@@ -726,25 +750,25 @@ class _TestQuestionsSelectionScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(left: 4, bottom: 6),
           child: Text(
             'Course',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF374151),
+              color: _titleColor,
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _surfaceColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: _borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -779,7 +803,7 @@ class _TestQuestionsSelectionScreenState
                               width: 36,
                               height: 36,
                               decoration: BoxDecoration(
-                                color: course.color.withOpacity(0.1),
+                                color: course.color.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Icon(
@@ -797,10 +821,10 @@ class _TestQuestionsSelectionScreenState
                                     children: [
                                       Text(
                                         course.code,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: Color(0xFF1F2937),
+                                          color: _titleColor,
                                         ),
                                       ),
                                       const SizedBox(width: 6),
@@ -842,7 +866,7 @@ class _TestQuestionsSelectionScreenState
                                     course.title,
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey.shade700,
+                                      color: _bodyColor,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -874,7 +898,7 @@ class _TestQuestionsSelectionScreenState
                 padding: const EdgeInsets.only(left: 4),
                 child: Text(
                   _courses.isEmpty ? 'No downloaded courses' : 'Select Course',
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: _bodyColor),
                 ),
               ),
             ),
@@ -891,25 +915,25 @@ class _TestQuestionsSelectionScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(left: 4, bottom: 6),
           child: Text(
             'Course Outline (Optional)',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF374151),
+              color: _titleColor,
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _surfaceColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: _borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -959,7 +983,7 @@ class _TestQuestionsSelectionScreenState
                     value: outline['id']?.toString() ?? '',
                     child: Text(
                       outline['title'] ?? 'Unknown',
-                      style: const TextStyle(fontSize: 14),
+                      style: TextStyle(fontSize: 14, color: _titleColor),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -990,9 +1014,7 @@ class _TestQuestionsSelectionScreenState
                             ? 'Select Outline (Optional)'
                             : (_topicError ?? 'No outlines available'),
                         style: TextStyle(
-                          color: hasTopics
-                              ? Colors.grey.shade600
-                              : Colors.orange,
+                          color: hasTopics ? _bodyColor : Colors.orange,
                         ),
                       ),
               ),
@@ -1048,11 +1070,12 @@ class _TestQuestionsSelectionScreenState
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -1066,7 +1089,7 @@ class _TestQuestionsSelectionScreenState
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -1074,20 +1097,16 @@ class _TestQuestionsSelectionScreenState
             const SizedBox(height: 8),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A1A2E),
+                color: _titleColor,
                 fontSize: 13,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
-              style: const TextStyle(
-                color: Color(0xFF6B7280),
-                fontSize: 11,
-                height: 1.2,
-              ),
+              style: TextStyle(color: _bodyColor, fontSize: 11, height: 1.2),
             ),
           ],
         ),

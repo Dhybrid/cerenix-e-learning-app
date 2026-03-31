@@ -1,7 +1,8 @@
 class ApiEndpoints {
   // static const String baseUrl = "http://127.0.0.1:8000"; // IP Address
-  static const String baseUrl = "http://192.168.1.81:8000"; // IP Addres
-  // static const String baseUrl = "https://cerenix-backend.vercel.app"; // Production address
+  // static const String baseUrl = "http://192.168.1.81:8000"; // IP Addres
+  static const String baseUrl =
+      "https://cerenix-backend.vercel.app"; // Production address
 
   static const String googleLogin = "$baseUrl/api/users/auth/google/";
   static const String emailRegister = "$baseUrl/api/users/auth/register/";

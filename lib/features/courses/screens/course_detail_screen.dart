@@ -6,7 +6,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/services/activation_status_service.dart';
-import '../../../core/services/event_bus.dart';
 import '../../../features/courses/models/course_models.dart';
 import '../../../core/constants/endpoints.dart';
 import 'lectures.dart';
@@ -34,29 +33,36 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
   // Activation status
   bool _isUserActivated = false;
-  bool _checkingActivation = false;
+  bool _checkingActivation = true;
   String _activationStatusMessage = 'Checking activation status...';
 
   // Track when screen was last refreshed
   DateTime? _lastRefreshTime;
   static const Duration _refreshInterval = Duration(minutes: 5);
-  StreamSubscription<ActivationStatusChangedEvent>? _activationChangedSubscription;
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8F9FA);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF333333);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF666666);
+  Color get _mutedColor =>
+      _isDark ? const Color(0xFF94A3B8) : const Color(0xFF999999);
+  Color get _borderColor => _isDark
+      ? Colors.white.withValues(alpha: 0.08)
+      : Colors.grey.withOpacity(0.1);
 
   @override
   void initState() {
     super.initState();
-    _activationChangedSubscription = EventBusService.instance
-        .on<ActivationStatusChangedEvent>()
-        .listen((event) {
-          if (!mounted) return;
-          setState(() {
-            _isUserActivated = event.isActivated;
-            _activationStatusMessage = event.isActivated
-                ? (event.grade?.toUpperCase() ?? 'Activated')
-                : 'Not Activated';
-            _checkingActivation = false;
-          });
-        });
+    ActivationStatusService.listenable.addListener(
+      _handleActivationStatusChanged,
+    );
+    _applyActivationSnapshot(ActivationStatusService.current);
+    unawaited(_checkActivationStatus(forceRefresh: true));
 
     // Start loading immediately
     _loadData();
@@ -64,8 +70,27 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
   @override
   void dispose() {
-    _activationChangedSubscription?.cancel();
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
     super.dispose();
+  }
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _isUserActivated = snapshot.isActivated;
+      _activationStatusMessage = snapshot.isActivated
+          ? (snapshot.grade?.toUpperCase() ?? 'Activated')
+          : 'Not Activated';
+      _checkingActivation = !snapshot.hasCachedValue;
+    });
   }
 
   /// Main data loading method
@@ -388,35 +413,25 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   }
 
   Future<void> _checkActivationStatus({bool forceRefresh = false}) async {
-    if (mounted) {
+    final hadCachedState = ActivationStatusService.current.hasCachedValue;
+
+    if (!hadCachedState && mounted) {
       setState(() {
         _checkingActivation = true;
       });
     }
 
     try {
-      final cachedStatus = await ActivationStatusService.getCachedStatus();
-      if (cachedStatus.hasCachedValue && mounted) {
-        setState(() {
-          _isUserActivated = cachedStatus.isActivated;
-          _activationStatusMessage = cachedStatus.isActivated
-              ? (cachedStatus.grade?.toUpperCase() ?? 'Activated')
-              : 'Not Activated';
-        });
-      }
-
+      await ActivationStatusService.initialize();
       final status = await ActivationStatusService.resolveStatus(
-        forceRefresh: forceRefresh,
+        forceRefresh: false,
       );
 
-      if (!mounted) return;
+      _applyActivationSnapshot(status);
 
-      setState(() {
-        _isUserActivated = status.isActivated;
-        _activationStatusMessage = status.isActivated
-            ? (status.grade?.toUpperCase() ?? 'Activated')
-            : 'Not Activated';
-      });
+      if (forceRefresh || status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
+      }
     } catch (e) {
       print('❌ Error in activation check: $e');
       if (mounted) {
@@ -428,7 +443,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
         });
       }
     } finally {
-      if (mounted) {
+      if (!hadCachedState && mounted) {
         setState(() {
           _checkingActivation = false;
         });
@@ -910,7 +925,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: _pageBackground,
       body: RefreshIndicator(
         onRefresh: () async {
           await _refreshAllData();
@@ -925,13 +940,15 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9),
+                    color: _surfaceColor.withValues(
+                      alpha: _isDark ? 0.92 : 0.90,
+                    ),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.arrow_back_ios_new_rounded,
                     size: 18,
-                    color: Color(0xFF333333),
+                    color: _titleColor,
                   ),
                 ),
                 onPressed: () {
@@ -1021,8 +1038,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
             SliverToBoxAdapter(
               child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
+                decoration: BoxDecoration(
+                  color: _surfaceColor,
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(40),
                     topRight: Radius.circular(40),
@@ -1068,16 +1085,25 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.orange.shade50,
+          color: _isDark
+              ? Colors.orange.withValues(alpha: 0.12)
+              : Colors.orange.shade50,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.orange.shade200, width: 1.5),
+          border: Border.all(
+            color: _isDark
+                ? Colors.orange.withValues(alpha: 0.35)
+                : Colors.orange.shade200,
+            width: 1.5,
+          ),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.orange.shade100,
+                color: _isDark
+                    ? Colors.orange.withValues(alpha: 0.18)
+                    : Colors.orange.shade100,
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -1134,7 +1160,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
+        color: _surfaceColor.withValues(alpha: _isDark ? 0.96 : 0.95),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -1155,19 +1181,16 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                   children: [
                     Text(
                       widget.course.code,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF333333),
+                        color: _titleColor,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       widget.course.title,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                      ),
+                      style: TextStyle(fontSize: 14, color: _bodyColor),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1258,21 +1281,18 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Course Progress',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF666666),
+                          color: _bodyColor,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '${outlines.length} ${outlines.length == 1 ? 'Outline' : 'Outlines'}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF999999),
-                        ),
+                        style: TextStyle(fontSize: 11, color: _mutedColor),
                       ),
                     ],
                   ),
@@ -1294,7 +1314,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         '${completedOutlines}/${outlines.length} completed',
                         style: TextStyle(
                           fontSize: 11,
-                          color: widget.course.color.withOpacity(0.7),
+                          color: _isDark
+                              ? _bodyColor
+                              : widget.course.color.withOpacity(0.7),
                         ),
                       ),
                     ],
@@ -1312,7 +1334,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                     height: 8,
                     width: containerWidth,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF0F0F0),
+                      color: _isDark
+                          ? const Color(0xFF162235)
+                          : const Color(0xFFF0F0F0),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Stack(
@@ -1320,7 +1344,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         Container(
                           width: containerWidth,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF0F0F0),
+                            color: _isDark
+                                ? const Color(0xFF162235)
+                                : const Color(0xFFF0F0F0),
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
@@ -1362,22 +1388,18 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'About This Course',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 15),
           Text(
             _getCourseDescription(),
-            style: const TextStyle(
-              fontSize: 15,
-              color: Color(0xFF666666),
-              height: 1.6,
-            ),
+            style: TextStyle(fontSize: 15, color: _bodyColor, height: 1.6),
           ),
         ],
       ),
@@ -1385,16 +1407,16 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
   }
 
   Widget _buildLoadingState() {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.all(40),
       child: Center(
         child: Column(
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
             Text(
               'Loading course content...',
-              style: TextStyle(color: Color(0xFF666666), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
             ),
           ],
         ),
@@ -1412,7 +1434,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
             const SizedBox(height: 20),
             Text(
               errorMessage,
-              style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -1462,17 +1484,17 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'Course Outline',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
+                  color: _titleColor,
                 ),
               ),
               Text(
                 '${outlines.length} ${outlines.length == 1 ? 'Lesson' : 'Lessons'}',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF999999)),
+                style: TextStyle(fontSize: 14, color: _mutedColor),
               ),
             ],
           ),
@@ -1495,7 +1517,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       child: Material(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(16),
         elevation: 2,
         child: InkWell(
@@ -1505,8 +1527,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.withOpacity(0.1), width: 1),
-              color: isLocked ? Colors.grey.shade50 : Colors.white,
+              border: Border.all(color: _borderColor, width: 1),
+              color: isLocked ? _secondarySurfaceColor : _surfaceColor,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1520,8 +1542,10 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: isLocked
-                            ? Colors.grey.shade200
-                            : const Color(0xFFF0F0F0),
+                            ? (_isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.grey.shade200)
+                            : _secondarySurfaceColor,
                       ),
                     ),
                     if (!isLocked && progress > 0)
@@ -1531,7 +1555,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         child: CircularProgressIndicator(
                           value: progress / 100,
                           strokeWidth: 3,
-                          backgroundColor: const Color(0xFFF0F0F0),
+                          backgroundColor: _secondarySurfaceColor,
                           valueColor: AlwaysStoppedAnimation<Color>(
                             progress == 100
                                 ? Colors.green
@@ -1544,7 +1568,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                       height: 36,
                       decoration: BoxDecoration(
                         color: isLocked
-                            ? Colors.grey.shade300
+                            ? (_isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.grey.shade300)
                             : progress == 100
                             ? Colors.green
                             : widget.course.color.withOpacity(0.1),
@@ -1556,7 +1582,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                             ? Icon(
                                 Icons.lock_outline_rounded,
                                 size: 18,
-                                color: Colors.grey.shade600,
+                                color: _bodyColor,
                               )
                             : progress == 100
                             ? const Icon(
@@ -1588,9 +1614,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: isLocked
-                              ? Colors.grey.shade600
-                              : const Color(0xFF333333),
+                          color: isLocked ? _bodyColor : _titleColor,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -1603,9 +1627,15 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
+                            color: _isDark
+                                ? Colors.orange.withValues(alpha: 0.12)
+                                : Colors.orange.shade50,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orange.shade100),
+                            border: Border.all(
+                              color: _isDark
+                                  ? Colors.orange.withValues(alpha: 0.28)
+                                  : Colors.orange.shade100,
+                            ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1634,11 +1664,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'Progress',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Color(0xFF666666),
+                                    color: _bodyColor,
                                   ),
                                 ),
                                 Text(
@@ -1663,7 +1693,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                   height: 6,
                                   width: containerWidth,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFF0F0F0),
+                                    color: _secondarySurfaceColor,
                                     borderRadius: BorderRadius.circular(3),
                                   ),
                                   child: Stack(
@@ -1671,7 +1701,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                       Container(
                                         width: containerWidth,
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF0F0F0),
+                                          color: _secondarySurfaceColor,
                                           borderRadius: BorderRadius.circular(
                                             3,
                                           ),
@@ -1712,7 +1742,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: isLocked
-                        ? Colors.grey.shade200
+                        ? (_isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.grey.shade200)
                         : progress == 100
                         ? Colors.green.withOpacity(0.1)
                         : widget.course.color.withOpacity(0.1),
@@ -1726,7 +1758,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         : Icons.play_arrow_rounded,
                     size: 18,
                     color: isLocked
-                        ? Colors.grey.shade500
+                        ? _mutedColor
                         : progress == 100
                         ? Colors.green
                         : widget.course.color,
@@ -1746,11 +1778,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       child: Center(
         child: Column(
           children: [
-            Icon(Icons.menu_book, size: 60, color: Colors.grey[400]),
+            Icon(Icons.menu_book, size: 60, color: _mutedColor),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'No course outlines available yet',
-              style: TextStyle(color: Color(0xFF666666), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 10),
@@ -1758,7 +1790,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
               widget.course.isDownloaded
                   ? 'This course was downloaded but no outlines were found. Try re-downloading the course.'
                   : 'Course content will be added soon by your instructor',
-              style: const TextStyle(color: Color(0xFF999999), fontSize: 14),
+              style: TextStyle(color: _mutedColor, fontSize: 14),
               textAlign: TextAlign.center,
             ),
           ],

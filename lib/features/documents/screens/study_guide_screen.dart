@@ -1,14 +1,13 @@
 // lib/features/documents/screens/study_guide_screen.dart
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'package:hive_flutter/hive_flutter.dart';
 
 // Import your existing models and services
 import '../models/document_model.dart';
 import '../services/download_service.dart';
 import 'document_viewer_screen.dart';
 import '../../../core/network/api_service.dart';
+import '../../../core/services/activation_status_service.dart';
 
 class StudyGuideScreen extends StatefulWidget {
   final String university;
@@ -47,7 +46,16 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
   @override
   void initState() {
     super.initState();
+    ActivationStatusService.listenable.addListener(_handleActivationStatusChanged);
     _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
+    super.dispose();
   }
 
   Future<void> _loadInitialData() async {
@@ -58,90 +66,39 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
   }
 
   // ========== ACTIVATION STATUS CHECK ==========
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _isUserActivated = snapshot.isActivated;
+      _activationStatusMessage = snapshot.isActivated
+          ? (snapshot.grade?.toUpperCase() ?? 'Activated')
+          : 'Not Activated';
+      _checkingActivation = false;
+    });
+  }
+
   Future<void> _checkActivationStatus({bool forceRefresh = false}) async {
     setState(() {
       _checkingActivation = true;
     });
 
     try {
-      final activationBox = await Hive.openBox('activation_cache');
+      await ActivationStatusService.initialize();
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: false,
+      );
 
-      if (!forceRefresh) {
-        // Try cached data first
-        final cachedActivation = activationBox.get('user_activated');
-        final cachedTimestamp = activationBox.get('activation_timestamp');
+      _applyActivationSnapshot(status);
 
-        if (cachedActivation != null && cachedTimestamp != null) {
-          final timestamp = DateTime.parse(cachedTimestamp);
-          final now = DateTime.now();
-          final difference = now.difference(timestamp);
-
-          // Use cached data if it's less than 5 minutes old
-          if (difference.inMinutes < 5) {
-            setState(() {
-              _isUserActivated = cachedActivation;
-              _checkingActivation = false;
-              _activationStatusMessage = _isUserActivated
-                  ? 'Account activated'
-                  : 'Account not activated';
-            });
-            print('✅ Docs: Using cached activation status: $_isUserActivated');
-            return;
-          }
-        }
-      }
-
-      // Always fetch fresh data when forceRefresh is true or cache expired
-      try {
-        final activationData = await ApiService().getActivationStatus();
-
-        if (activationData != null && activationData.isValid) {
-          setState(() {
-            _isUserActivated = true;
-            _activationStatusMessage =
-                '${activationData.grade?.toUpperCase() ?? 'Activated'}';
-          });
-
-          // Cache the result with timestamp
-          await activationBox.put('user_activated', true);
-          await activationBox.put(
-            'activation_timestamp',
-            DateTime.now().toIso8601String(),
-          );
-          await activationBox.put('activation_grade', activationData.grade);
-          print('✅ Docs: User is activated: ${activationData.grade}');
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated';
-          });
-
-          // Cache the result
-          await activationBox.put('user_activated', false);
-          await activationBox.put(
-            'activation_timestamp',
-            DateTime.now().toIso8601String(),
-          );
-          print('ℹ️ Docs: User is not activated');
-        }
-      } catch (e) {
-        print('❌ Docs: Error fetching activation from API: $e');
-
-        // Fallback to cached data if available
-        final cachedActivation = activationBox.get('user_activated');
-        if (cachedActivation != null) {
-          setState(() {
-            _isUserActivated = cachedActivation;
-            _activationStatusMessage = _isUserActivated
-                ? 'Account activated (offline)'
-                : 'Account not activated (offline)';
-          });
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated (offline)';
-          });
-        }
+      if (forceRefresh || status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
       }
     } catch (e) {
       print('❌ Docs: Error in activation check: $e');

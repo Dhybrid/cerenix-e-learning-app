@@ -11,7 +11,18 @@ class ProgressScreen extends StatefulWidget {
 
 class _ProgressScreenState extends State<ProgressScreen> {
   final ApiService _apiService = ApiService();
-  
+
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF1E293B);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF666666);
+
   bool _isLoading = true;
   double _overallProgress = 0.0;
   int _totalCourses = 0;
@@ -20,44 +31,40 @@ class _ProgressScreenState extends State<ProgressScreen> {
   int _completedOutlines = 0;
   int _totalTopics = 0;
   int _completedTopics = 0;
-  
+
   // Streak tracking variables
   int _currentStreak = 0;
   int _longestStreak = 0;
   int _totalOpenedDays = 0;
   List<DateTime> _openedDates = [];
-  
+
   // Store course progress data
   List<Map<String, dynamic>> _courseProgressList = [];
-  
+
   @override
   void initState() {
     super.initState();
     _initializeData();
   }
-  
+
   Future<void> _initializeData() async {
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       // First, record today's app open for streak tracking
       await _recordAppOpen();
-      
+
       // Then load all other data
-      await Future.wait([
-        _loadStreakData(),
-        _loadCoursesWithProgress(),
-      ]);
-      
+      await Future.wait([_loadStreakData(), _loadCoursesWithProgress()]);
+
       // Calculate overall progress
       await _calculateOverallProgress();
-      
+
       setState(() {
         _isLoading = false;
       });
-      
     } catch (e) {
       print('❌ Error initializing data: $e');
       setState(() {
@@ -65,16 +72,16 @@ class _ProgressScreenState extends State<ProgressScreen> {
       });
     }
   }
-  
+
   // Streak tracking functions
   Future<void> _recordAppOpen() async {
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      
+
       // Open or create the streak box
       final streakBox = await Hive.openBox('app_streak_tracking');
-      
+
       // Check if we already recorded today's open
       final lastRecordedDate = streakBox.get('last_recorded_date');
       if (lastRecordedDate != null) {
@@ -84,29 +91,28 @@ class _ProgressScreenState extends State<ProgressScreen> {
           return;
         }
       }
-      
+
       // Record today's open
       final dateKey = today.toIso8601String();
       streakBox.put(dateKey, true);
       streakBox.put('last_recorded_date', dateKey);
-      
+
       print('📱 Recorded app open for streak: $dateKey');
-      
     } catch (e) {
       print('⚠️ Error recording app open: $e');
     }
   }
-  
+
   Future<void> _loadStreakData() async {
     try {
       final streakBox = await Hive.openBox('app_streak_tracking');
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      
+
       // Get all recorded dates
       final allKeys = streakBox.keys.toList();
       List<DateTime> openedDates = [];
-      
+
       for (var key in allKeys) {
         if (key != 'last_recorded_date' && streakBox.get(key) == true) {
           try {
@@ -117,25 +123,27 @@ class _ProgressScreenState extends State<ProgressScreen> {
           }
         }
       }
-      
+
       // Sort dates
       openedDates.sort((a, b) => a.compareTo(b));
-      
+
       // Calculate streaks
       int currentStreak = 0;
       int longestStreak = 0;
       int tempStreak = 0;
-      
+
       // Check current streak (consecutive days up to today)
       DateTime checkDate = today;
-      while (openedDates.any((date) => 
-          date.year == checkDate.year && 
-          date.month == checkDate.month && 
-          date.day == checkDate.day)) {
+      while (openedDates.any(
+        (date) =>
+            date.year == checkDate.year &&
+            date.month == checkDate.month &&
+            date.day == checkDate.day,
+      )) {
         currentStreak++;
         checkDate = checkDate.subtract(const Duration(days: 1));
       }
-      
+
       // Calculate longest streak
       if (openedDates.isNotEmpty) {
         tempStreak = 1;
@@ -143,7 +151,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           final prevDate = openedDates[i - 1];
           final currDate = openedDates[i];
           final difference = currDate.difference(prevDate).inDays;
-          
+
           if (difference == 1) {
             tempStreak++;
           } else {
@@ -153,25 +161,24 @@ class _ProgressScreenState extends State<ProgressScreen> {
             tempStreak = 1;
           }
         }
-        
+
         // Check last streak
         if (tempStreak > longestStreak) {
           longestStreak = tempStreak;
         }
       }
-      
+
       setState(() {
         _openedDates = openedDates;
         _currentStreak = currentStreak;
         _longestStreak = longestStreak;
         _totalOpenedDays = openedDates.length;
       });
-      
+
       print('📊 Streak data loaded:');
       print('   Current streak: $currentStreak days');
       print('   Longest streak: $longestStreak days');
       print('   Total days opened: ${openedDates.length}');
-      
     } catch (e) {
       print('⚠️ Error loading streak data: $e');
       setState(() {
@@ -182,20 +189,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
       });
     }
   }
-  
+
   Future<void> _loadCoursesWithProgress() async {
     try {
       final progressBox = await Hive.openBox('course_progress_cache');
       final keys = progressBox.keys.toList();
-      
+
       List<Map<String, dynamic>> courses = [];
-      
+
       for (var key in keys) {
         if (key.startsWith('progress_')) {
           final courseId = key.replaceFirst('progress_', '');
           final progressValue = progressBox.get('progress_$courseId');
           final lastUpdated = progressBox.get('last_updated_$courseId');
-          
+
           // Convert progress to int safely
           int progress = 0;
           if (progressValue != null) {
@@ -207,7 +214,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               progress = progressValue.toInt();
             }
           }
-          
+
           // Store course data in a map
           courses.add({
             'id': courseId,
@@ -219,15 +226,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
           });
         }
       }
-      
+
       _courseProgressList = courses;
-      
     } catch (e) {
       print('Error loading courses with progress: $e');
       _courseProgressList = [];
     }
   }
-  
+
   Future<void> _calculateOverallProgress() async {
     if (_courseProgressList.isEmpty) {
       setState(() {
@@ -241,11 +247,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
       });
       return;
     }
-    
+
     int totalCourses = _courseProgressList.length;
     int completedCourses = 0;
     double totalProgressSum = 0.0;
-    
+
     // Count completed courses (100% progress)
     for (var course in _courseProgressList) {
       final progress = course['progress'] ?? 0;
@@ -254,13 +260,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
         completedCourses++;
       }
     }
-    
+
     // Calculate overall progress average
-    final double overallProgress = totalCourses > 0 ? totalProgressSum / totalCourses : 0.0;
-    
+    final double overallProgress = totalCourses > 0
+        ? totalProgressSum / totalCourses
+        : 0.0;
+
     // For now, we'll skip the detailed outline/topic calculation since it requires API calls
     // You can add this later if needed
-    
+
     setState(() {
       _overallProgress = overallProgress;
       _totalCourses = totalCourses;
@@ -269,10 +277,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
       _totalOutlines = totalCourses * 3; // Estimate
       _completedOutlines = completedCourses * 3; // Estimate
       _totalTopics = totalCourses * 9; // Estimate
-      _completedTopics = (totalProgressSum / 100 * totalCourses * 9).toInt(); // Estimate
+      _completedTopics = (totalProgressSum / 100 * totalCourses * 9)
+          .toInt(); // Estimate
     });
   }
-  
+
   Color _getCourseColor(int index) {
     final colors = [
       Colors.blue,
@@ -285,19 +294,21 @@ class _ProgressScreenState extends State<ProgressScreen> {
     ];
     return colors[index % colors.length];
   }
-  
+
   double _getLearningRateScore() {
     // Calculate learning rate based on streak consistency and progress
-    final double consistencyScore = (_currentStreak / 30) * 50; // Max 50 points for consistency
-    final double progressScore = (_overallProgress / 100) * 50; // Max 50 points for progress
-    
+    final double consistencyScore =
+        (_currentStreak / 30) * 50; // Max 50 points for consistency
+    final double progressScore =
+        (_overallProgress / 100) * 50; // Max 50 points for progress
+
     // Cap scores at their maximum
     final double finalConsistency = consistencyScore.clamp(0, 50).toDouble();
     final double finalProgress = progressScore.clamp(0, 50).toDouble();
-    
+
     return finalConsistency + finalProgress;
   }
-  
+
   String _getLearningRateCategory(double score) {
     if (score >= 90) return 'Excellent';
     if (score >= 75) return 'Fast';
@@ -305,7 +316,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (score >= 40) return 'Moderate';
     return 'Beginner';
   }
-  
+
   Color _getLearningRateColor(double score) {
     if (score >= 90) return Colors.green;
     if (score >= 75) return Colors.blue;
@@ -313,7 +324,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (score >= 40) return Colors.yellow[700]!;
     return Colors.grey;
   }
-  
+
   String _getStreakMessage(int streak) {
     if (streak >= 30) {
       return 'Incredible! $streak consecutive days! 🎉';
@@ -327,22 +338,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
       return 'Starting your streak! Come back tomorrow!';
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: _pageBackground,
       appBar: AppBar(
         title: const Text(
           'Progress',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: Colors.black,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -363,19 +371,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     // Streak Section - UPDATED with real streak data
                     _buildStreakSection(),
                     const SizedBox(height: 24),
-                    
+
                     // Stats Cards
                     _buildStatsSection(),
                     const SizedBox(height: 24),
-                    
+
                     // Progress Overview
                     _buildProgressOverview(),
                     const SizedBox(height: 24),
-                    
+
                     // Learning Rate
                     _buildLearningRate(),
                     const SizedBox(height: 24),
-                    
+
                     // Final Remark
                     _buildFinalRemark(),
                     const SizedBox(height: 40),
@@ -385,7 +393,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ),
     );
   }
-  
+
   Widget _buildStreakSection() {
     return Container(
       width: double.infinity,
@@ -399,7 +407,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.orange.withOpacity(0.3),
+            color: Colors.orange.withValues(alpha: 0.3),
             blurRadius: 15,
             offset: const Offset(0, 6),
           ),
@@ -410,7 +418,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.local_fire_department, color: Colors.white.withOpacity(0.8), size: 28),
+              Icon(
+                Icons.local_fire_department,
+                color: Colors.white.withValues(alpha: 0.8),
+                size: 28,
+              ),
               Column(
                 children: [
                   Text(
@@ -431,7 +443,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   ),
                 ],
               ),
-              Icon(Icons.celebration, color: Colors.white.withOpacity(0.8), size: 28),
+              Icon(
+                Icons.celebration,
+                color: Colors.white.withValues(alpha: 0.8),
+                size: 28,
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -450,19 +466,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 : 'Open the app tomorrow to start your streak!',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
               fontSize: 14,
               height: 1.4,
             ),
           ),
-          
+
           // Additional streak stats
           if (_totalOpenedDays > 0)
             Container(
               margin: const EdgeInsets.only(top: 16),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -472,7 +488,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   Container(
                     width: 1,
                     height: 30,
-                    color: Colors.white.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.3),
                   ),
                   _buildMiniStat('Total Days', '$_totalOpenedDays'),
                 ],
@@ -482,7 +498,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
       ),
     );
   }
-  
+
   Widget _buildMiniStat(String label, String value) {
     return Column(
       children: [
@@ -498,14 +514,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withValues(alpha: 0.8),
             fontSize: 12,
           ),
         ),
       ],
     );
   }
-  
+
   Widget _buildStatsSection() {
     return Row(
       children: [
@@ -513,8 +529,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
           child: _buildStatCard(
             'Overall Progress',
             '${_overallProgress.toStringAsFixed(1)}%',
-            const Color(0xFFECFDF5),
-            const Color(0xFF065F46),
+            _isDark ? const Color(0xFF133028) : const Color(0xFFECFDF5),
+            _isDark ? const Color(0xFF86EFAC) : const Color(0xFF065F46),
             Icons.trending_up,
             Colors.green,
           ),
@@ -524,8 +540,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
           child: _buildStatCard(
             'Completed Courses',
             '$_completedCourses/$_totalCourses',
-            const Color(0xFFEFF6FF),
-            const Color(0xFF1E40AF),
+            _isDark ? const Color(0xFF15263F) : const Color(0xFFEFF6FF),
+            _isDark ? const Color(0xFF93C5FD) : const Color(0xFF1E40AF),
             Icons.school,
             Colors.blue,
           ),
@@ -533,8 +549,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
       ],
     );
   }
-  
-  Widget _buildStatCard(String title, String value, Color bgColor, Color textColor, IconData icon, Color iconColor) {
+
+  Widget _buildStatCard(
+    String title,
+    String value,
+    Color bgColor,
+    Color textColor,
+    IconData icon,
+    Color iconColor,
+  ) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -542,12 +565,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
         ],
-        border: Border.all(color: bgColor.withOpacity(0.5)),
+        border: Border.all(color: bgColor.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -555,7 +578,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
+              color: iconColor.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: iconColor, size: 20),
@@ -575,28 +598,33 @@ class _ProgressScreenState extends State<ProgressScreen> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: textColor.withOpacity(0.8),
+              color: textColor.withValues(alpha: 0.8),
             ),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildProgressOverview() {
     if (_courseProgressList.isEmpty) {
       return _buildEmptyState();
     }
-    
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFE2E8F0),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -605,43 +633,44 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Course Progress',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 20),
-          
+
           // Show top 3 courses
           ..._courseProgressList.take(3).map((courseData) {
             return Column(
               children: [
                 _buildCourseProgressItem(courseData),
-                if (_courseProgressList.indexOf(courseData) < _courseProgressList.take(3).length - 1)
+                if (_courseProgressList.indexOf(courseData) <
+                    _courseProgressList.take(3).length - 1)
                   const SizedBox(height: 16),
               ],
             );
           }).toList(),
-          
+
           if (_courseProgressList.length > 3)
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Center(
                 child: Text(
                   '+ ${_courseProgressList.length - 3} more courses',
-                  style: const TextStyle(
-                    color: Colors.blue,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
                     fontSize: 14,
                   ),
                 ),
               ),
             ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Additional stats
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -660,12 +689,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
       ),
     );
   }
-  
+
   Widget _buildCourseProgressItem(Map<String, dynamic> courseData) {
     final progress = courseData['progress'] ?? 0;
     final code = courseData['code'] ?? 'CRS';
     final color = courseData['color'] ?? Colors.blue;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -697,13 +726,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
           height: 8,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.grey.shade200,
+            color: _secondarySurfaceColor,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
             children: [
               Container(
-                width: (progress / 100) * (MediaQuery.of(context).size.width - 80),
+                width:
+                    (progress / 100) * (MediaQuery.of(context).size.width - 80),
                 height: 8,
                 decoration: BoxDecoration(
                   color: progress == 100 ? Colors.green : color,
@@ -716,21 +746,26 @@ class _ProgressScreenState extends State<ProgressScreen> {
       ],
     );
   }
-  
+
   Widget _buildLearningRate() {
     final learningRateScore = _getLearningRateScore();
     final learningRateCategory = _getLearningRateCategory(learningRateScore);
     final learningRateColor = _getLearningRateColor(learningRateScore);
-    
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFE2E8F0),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -739,16 +774,16 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Learning Rate',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 20),
-          
+
           Center(
             child: Stack(
               alignment: Alignment.center,
@@ -759,8 +794,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   child: CircularProgressIndicator(
                     value: learningRateScore / 100,
                     strokeWidth: 12,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(learningRateColor),
+                    backgroundColor: _secondarySurfaceColor,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      learningRateColor,
+                    ),
                   ),
                 ),
                 Column(
@@ -776,10 +813,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                     Text(
                       learningRateCategory,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
-                      ),
+                      style: TextStyle(fontSize: 14, color: _bodyColor),
                     ),
                   ],
                 ),
@@ -790,22 +824,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
           Center(
             child: Text(
               'Based on your progress and consistency',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: _bodyColor),
             ),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildFinalRemark() {
     String title;
     String message;
     IconData icon;
-    
+
     // Updated to consider streak for final remark
     if (_currentStreak >= 30) {
       title = 'Legendary Streak!';
@@ -825,15 +856,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
       icon = Icons.directions_walk;
     } else if (_overallProgress >= 90) {
       title = 'Outstanding Progress!';
-      message = 'You\'re almost at 100% completion! Keep up the excellent work!';
+      message =
+          'You\'re almost at 100% completion! Keep up the excellent work!';
       icon = Icons.emoji_events;
     } else if (_overallProgress >= 70) {
       title = 'Great Progress!';
-      message = 'You\'re making excellent progress. Keep maintaining this pace!';
+      message =
+          'You\'re making excellent progress. Keep maintaining this pace!';
       icon = Icons.star;
     } else if (_overallProgress >= 50) {
       title = 'Good Progress!';
-      message = 'You\'re halfway there! Consistency will help you reach your goals.';
+      message =
+          'You\'re halfway there! Consistency will help you reach your goals.';
       icon = Icons.trending_up;
     } else if (_overallProgress >= 25) {
       title = 'Making Progress!';
@@ -844,17 +878,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
       message = 'Begin your learning journey today. Every step counts!';
       icon = Icons.play_arrow;
     }
-    
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0FDF4),
+        color: _isDark ? const Color(0xFF133028) : const Color(0xFFF0FDF4),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.3),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.05),
+            color: Colors.green.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -880,27 +916,28 @@ class _ProgressScreenState extends State<ProgressScreen> {
           const SizedBox(height: 12),
           Text(
             message,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-              height: 1.5,
-            ),
+            style: TextStyle(fontSize: 14, color: _bodyColor, height: 1.5),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildEmptyState() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFE2E8F0),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -910,21 +947,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
         children: [
           Icon(Icons.school, size: 60, color: Colors.grey[400]),
           const SizedBox(height: 20),
-          const Text(
+          Text(
             'Start Your Learning Journey',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF666666),
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 10),
-          const Text(
+          Text(
             'Begin learning courses to track your progress and build streaks!',
-            style: TextStyle(
-              color: Color(0xFF999999),
-              fontSize: 14,
-            ),
+            style: TextStyle(color: _bodyColor, fontSize: 14),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
@@ -951,10 +985,7 @@ class _AdditionalStat extends StatelessWidget {
   final String title;
   final String value;
 
-  const _AdditionalStat({
-    required this.title,
-    required this.value,
-  });
+  const _AdditionalStat({required this.title, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -963,18 +994,18 @@ class _AdditionalStat extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Colors.grey,
+            color: Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],

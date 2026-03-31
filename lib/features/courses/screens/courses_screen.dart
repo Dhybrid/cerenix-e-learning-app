@@ -15,7 +15,6 @@ import '../../../features/past_questions/models/past_question_models.dart';
 import '../../../core/constants/endpoints.dart';
 import 'package:flutter/foundation.dart'; // Add this import
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../../core/services/event_bus.dart';
 import '../../../core/services/activation_status_service.dart';
 
 class CoursesScreen extends StatefulWidget {
@@ -46,7 +45,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   // Activation status
   bool _isUserActivated = false;
-  bool _checkingActivation = false;
+  bool _checkingActivation = true;
   String _activationStatusMessage = 'Checking activation...';
 
   // Download states
@@ -66,7 +65,19 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   // Add this field to store current user ID
   String? _currentUserId;
-  StreamSubscription<ActivationStatusChangedEvent>? _activationChangedSubscription;
+
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF333333);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF666666);
 
   @override
   // void initState() {
@@ -105,18 +116,11 @@ class _CoursesScreenState extends State<CoursesScreen> {
     super.initState();
     filteredCourses = [];
     _searchController.addListener(_filterCourses);
-    _activationChangedSubscription = EventBusService.instance
-        .on<ActivationStatusChangedEvent>()
-        .listen((event) {
-          if (!mounted) return;
-          setState(() {
-            _isUserActivated = event.isActivated;
-            _activationStatusMessage = event.isActivated
-                ? (event.grade?.toUpperCase() ?? 'Activated')
-                : 'Not Activated';
-            _checkingActivation = false;
-          });
-        });
+    ActivationStatusService.listenable.addListener(
+      _handleActivationStatusChanged,
+    );
+    _applyActivationSnapshot(ActivationStatusService.current);
+    unawaited(_checkActivationStatus(forceRefresh: true));
 
     // Load cached data IMMEDIATELY before any async operations
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -292,10 +296,29 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   @override
   void dispose() {
-    _activationChangedSubscription?.cancel();
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _isUserActivated = snapshot.isActivated;
+      _activationStatusMessage = snapshot.isActivated
+          ? (snapshot.grade?.toUpperCase() ?? 'Activated')
+          : 'Not Activated';
+      _checkingActivation = !snapshot.hasCachedValue;
+    });
   }
 
   Future<void> _loadInitialData() async {
@@ -1491,37 +1514,26 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
-  Future<void> _checkActivationStatus() async {
-    if (mounted) {
+  Future<void> _checkActivationStatus({bool forceRefresh = false}) async {
+    final hadCachedState = ActivationStatusService.current.hasCachedValue;
+
+    if (!hadCachedState && !_checkingActivation && mounted) {
       setState(() {
         _checkingActivation = true;
       });
     }
 
     try {
-      final cachedStatus = await ActivationStatusService.getCachedStatus();
-      if (cachedStatus.hasCachedValue && mounted) {
-        setState(() {
-          _isUserActivated = cachedStatus.isActivated;
-          _activationStatusMessage = cachedStatus.isActivated
-              ? (cachedStatus.grade?.toUpperCase() ?? 'Activated')
-              : 'Not Activated';
-        });
-      }
-
+      await ActivationStatusService.initialize();
       final status = await ActivationStatusService.resolveStatus(
-        forceRefresh: true,
+        forceRefresh: false,
       );
 
-      if (!mounted) return;
+      _applyActivationSnapshot(status);
 
-      setState(() {
-        _isUserActivated = status.isActivated;
-        _activationStatusMessage = status.isActivated
-            ? (status.grade?.toUpperCase() ?? 'Activated')
-            : 'Not Activated';
-        _checkingActivation = false;
-      });
+      if (forceRefresh || status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
+      }
     } catch (e) {
       print('❌ Error checking activation: $e');
       if (mounted) {
@@ -1532,7 +1544,17 @@ class _CoursesScreenState extends State<CoursesScreen> {
           _checkingActivation = false;
         });
       }
+    } finally {
+      if (!hadCachedState && mounted) {
+        setState(() {
+          _checkingActivation = false;
+        });
+      }
     }
+  }
+
+  Future<void> _refreshActivationStatus() async {
+    await _checkActivationStatus(forceRefresh: true);
   }
 
   Future<void> _loadRecentCourseFromStorage() async {
@@ -2244,7 +2266,8 @@ class _CoursesScreenState extends State<CoursesScreen> {
             final topicJson = topic.toJson();
 
             // Extract image URL from topic
-            String? topicImageUrl = topicJson['image'];
+            String? topicImageUrl =
+                topicJson['display_image_url'] ?? topicJson['image'];
             if (topicImageUrl == null || topicImageUrl.isEmpty) {
               // Try other possible fields
               topicImageUrl =
@@ -2662,11 +2685,14 @@ class _CoursesScreenState extends State<CoursesScreen> {
       for (var topic in allTopics) {
         if (topic['original_image_url'] != null) totalImages++;
 
-        // Count CKEditor images in content
-        final content = topic['content'] as String?;
-        if (content != null && content.isNotEmpty) {
-          final ckeditorImages = _extractImageUrlsFromHtml(content);
-          totalImages += ckeditorImages.length;
+        for (final htmlContent in [
+          topic['content'] as String?,
+          topic['completion_question_text'] as String?,
+          topic['solution_text'] as String?,
+        ]) {
+          if (htmlContent != null && htmlContent.isNotEmpty) {
+            totalImages += _extractImageUrlsFromHtml(htmlContent).length;
+          }
         }
       }
 
@@ -2753,31 +2779,40 @@ class _CoursesScreenState extends State<CoursesScreen> {
         }
       }
 
-      // Download CKEditor embedded images from topic content
+      // Download embedded lecture images from topic content and lecture text
       int ckeditorImageCount = 0;
       for (var topic in allTopics) {
-        final content = topic['content'] as String?;
-        if (content != null && content.isNotEmpty) {
+        final htmlSources = <String, String?>{
+          'content': topic['content'] as String?,
+          'question': topic['completion_question_text'] as String?,
+          'solution': topic['solution_text'] as String?,
+        };
+
+        for (final htmlEntry in htmlSources.entries) {
+          final content = htmlEntry.value;
+          if (content == null || content.isEmpty) {
+            continue;
+          }
+
           try {
-            // Extract all image URLs from CKEditor HTML content
             final imageUrls = _extractImageUrlsFromHtml(content);
 
             for (var imageUrl in imageUrls) {
               if (imageUrl.isNotEmpty) {
                 try {
                   print(
-                    '🖼️ Downloading CKEditor image for topic ${topic['id']}...',
+                    '🖼️ Downloading embedded lecture image for topic ${topic['id']} (${htmlEntry.key})...',
                   );
                   final imagePath = await _downloadImage(
                     imageUrl,
-                    'ckeditor_topic_${topic['id']}_$ckeditorImageCount',
+                    'topic_${topic['id']}_${htmlEntry.key}_$ckeditorImageCount',
                   );
                   if (imagePath != null) {
-                    downloadedImages['ckeditor_topic_${topic['id']}_$ckeditorImageCount'] =
+                    downloadedImages['topic_${topic['id']}_${htmlEntry.key}_$ckeditorImageCount'] =
                         {
                           'path': imagePath,
                           'original_url': imageUrl,
-                          'type': 'ckeditor',
+                          'type': 'lecture_inline',
                         };
                     ckeditorImageCount++;
                     downloadedImagesCount++;
@@ -2793,14 +2828,14 @@ class _CoursesScreenState extends State<CoursesScreen> {
                   }
                 } catch (e) {
                   print(
-                    '⚠️ Error downloading CKEditor image for topic ${topic['id']}: $e',
+                    '⚠️ Error downloading embedded lecture image for topic ${topic['id']}: $e',
                   );
                 }
               }
             }
           } catch (e) {
             print(
-              '⚠️ Error extracting CKEditor images from topic ${topic['id']}: $e',
+              '⚠️ Error extracting embedded lecture images from topic ${topic['id']}: $e',
             );
           }
         }
@@ -3076,11 +3111,14 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
     try {
       // Extract images from <img> tags (most reliable)
-      final imgTagPattern = RegExp(r'<img[^>]*src="([^">]*)"');
+      final imgTagPattern = RegExp(
+        '<img[^>]*src\\s*=\\s*([\'"])([^\'"]*)\\1',
+        caseSensitive: false,
+      );
       final imgMatches = imgTagPattern.allMatches(htmlContent);
 
       for (final match in imgMatches) {
-        final imageUrl = match.group(1) ?? '';
+        final imageUrl = match.group(2) ?? '';
         if (imageUrl.isNotEmpty && !imageUrl.startsWith('data:')) {
           // Clean the URL
           String cleanUrl = imageUrl.trim();
@@ -3937,7 +3975,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
       onTap: _unfocusSearch,
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: _pageBackground,
         appBar: CustomAppBar(
           scaffoldKey: _scaffoldKey,
           title: 'Courses',
@@ -3993,11 +4031,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.10),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -4014,9 +4053,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 hintText: 'Search for courses...',
-                hintStyle: TextStyle(color: Color(0xFF999999), fontSize: 16),
+                hintStyle: TextStyle(fontSize: 16),
               ),
-              style: const TextStyle(fontSize: 16),
+              style: TextStyle(fontSize: 16, color: _titleColor),
             ),
           ),
           if (_searchController.text.isNotEmpty)
@@ -4025,14 +4064,10 @@ class _CoursesScreenState extends State<CoursesScreen> {
               child: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8F9FA),
+                  color: _secondarySurfaceColor,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: Color(0xFF666666),
-                ),
+                child: Icon(Icons.close_rounded, size: 18, color: _bodyColor),
               ),
             ),
         ],
@@ -4121,7 +4156,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                   image: AssetImage(advertImageUrl!),
                   fit: BoxFit.cover,
                   colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.3),
+                    Colors.black.withValues(alpha: 0.3),
                     BlendMode.darken,
                   ),
                 )
@@ -4136,7 +4171,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF667eea).withOpacity(0.3),
+              color: const Color(0xFF667eea).withValues(alpha: 0.3),
               blurRadius: 15,
               offset: const Offset(0, 8),
             ),
@@ -4248,7 +4283,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
             const SizedBox(height: 20),
             Text(
               errorMessage,
-              style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 10),
@@ -4259,9 +4294,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
               Column(
                 children: [
                   const SizedBox(height: 10),
-                  const Text(
+                  Text(
                     'Your downloaded courses should appear here.',
-                    style: TextStyle(color: Color(0xFF999999), fontSize: 14),
+                    style: TextStyle(color: _bodyColor, fontSize: 14),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 5),
@@ -4336,7 +4371,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
             const SizedBox(height: 20),
             Text(
               message,
-              style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 10),
@@ -4378,7 +4413,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.fromLTRB(20, 20, 20, 15),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -4388,7 +4423,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
+                  color: _titleColor,
                 ),
               ),
             ],
@@ -4400,11 +4435,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 20),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _surfaceColor,
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _borderColor),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: _isDark ? 0.16 : 0.08),
                   blurRadius: 15,
                   offset: const Offset(0, 6),
                 ),
@@ -4475,19 +4511,16 @@ class _CoursesScreenState extends State<CoursesScreen> {
                     children: [
                       Text(
                         course.code,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF333333),
+                          color: _titleColor,
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         course.title,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF666666),
-                        ),
+                        style: TextStyle(fontSize: 14, color: _bodyColor),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -4581,7 +4614,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.1),
+                            color: Colors.green.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
@@ -4616,24 +4649,24 @@ class _CoursesScreenState extends State<CoursesScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: const Color(0xFFF0F0F0),
+            color: _isDark ? _secondarySurfaceColor : const Color(0xFFF0F0F0),
             shape: BoxShape.circle,
           ),
         ),
         Container(
           width: 40,
           height: 40,
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: _isDark ? _surfaceColor : Colors.white,
             shape: BoxShape.circle,
           ),
           child: Center(
             child: Text(
               '$progress%',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF333333),
+                color: _titleColor,
               ),
             ),
           ),
@@ -4646,23 +4679,23 @@ class _CoursesScreenState extends State<CoursesScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.fromLTRB(20, 30, 20, 20),
           child: Text(
             'All Courses',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
+              color: _titleColor,
             ),
           ),
         ),
         if (filteredCourses.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: Text(
               'No courses found matching your search',
-              style: TextStyle(color: Color(0xFF999999), fontSize: 16),
+              style: TextStyle(color: _bodyColor, fontSize: 16),
               textAlign: TextAlign.center,
             ),
           )
@@ -4699,9 +4732,14 @@ class _CoursesScreenState extends State<CoursesScreen> {
         decoration: BoxDecoration(
           color: course.color,
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : course.color.withValues(alpha: 0.16),
+          ),
           boxShadow: [
             BoxShadow(
-              color: course.color.withOpacity(0.3),
+              color: course.color.withValues(alpha: _isDark ? 0.20 : 0.30),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
@@ -4717,7 +4755,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
                 width: 70,
                 height: 70,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: (_isDark ? Colors.black : Colors.white).withValues(
+                    alpha: _isDark ? 0.18 : 0.20,
+                  ),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -4729,7 +4769,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
+                  color: (_isDark ? Colors.black : Colors.white).withValues(
+                    alpha: _isDark ? 0.14 : 0.15,
+                  ),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -4760,7 +4802,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
+                      color: Colors.white,
                     ),
                   ),
 
@@ -4769,7 +4811,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                     course.title,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF333333),
+                      color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 2,
@@ -4784,7 +4826,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
                       Container(
                         height: 6,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.4),
+                          color: Colors.white.withValues(
+                            alpha: _isDark ? 0.18 : 0.4,
+                          ),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Row(
@@ -4819,7 +4863,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                             'Progress',
                             style: TextStyle(
                               fontSize: 10,
-                              color: Color(0xFF333333),
+                              color: Colors.white,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -4828,7 +4872,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                             style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
+                              color: Colors.white,
                             ),
                           ),
                         ],
@@ -4856,7 +4900,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
         height: 36,
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
+          color: (_isDark ? const Color(0xFF101A2B) : Colors.white).withValues(
+            alpha: 0.92,
+          ),
           shape: BoxShape.circle,
         ),
         child: Stack(
@@ -4904,7 +4950,8 @@ class _CoursesScreenState extends State<CoursesScreen> {
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
+            color: (_isDark ? const Color(0xFF101A2B) : Colors.white)
+                .withValues(alpha: 0.92),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -4921,7 +4968,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
+          color: (_isDark ? const Color(0xFF101A2B) : Colors.white).withValues(
+            alpha: 0.92,
+          ),
           shape: BoxShape.circle,
         ),
         child: const Icon(

@@ -10,7 +10,9 @@ import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:async';
 import '../../../core/network/api_service.dart';
+import '../../../core/services/activation_status_service.dart';
 import '../../../core/constants/endpoints.dart';
+import '../../../core/utils/latex_render_utils.dart';
 import '../models/test_question_models.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -41,6 +43,8 @@ class TestQuestionsScreen extends StatefulWidget {
 
 class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   final ApiService _apiService = ApiService();
+  final ScrollController _questionsScrollController = ScrollController();
+  static const int _questionsPerPage = 10;
 
   List<TestQuestion> _questions = [];
   final List<bool> _showSolution = [];
@@ -59,11 +63,13 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   String _activationStatusMessage = 'Checking activation status...';
   int _maxQuestionsForNonActivated =
       7; // Show only 2 questions for non-activated users
+  int _currentPageIndex = 0;
   // ========== END ACTIVATION STATE ==========
 
   @override
   void initState() {
     super.initState();
+    ActivationStatusService.listenable.addListener(_handleActivationStatusChanged);
     // _loadQuestions();
     _loadInitialData();
 
@@ -78,7 +84,33 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     await _loadQuestions();
   }
 
+  @override
+  void dispose() {
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
+    _questionsScrollController.dispose();
+    super.dispose();
+  }
+
   // ========== ACTIVATION STATUS CHECK ==========
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _isUserActivated = snapshot.isActivated;
+      _activationStatusMessage = snapshot.isActivated
+          ? (snapshot.grade?.toUpperCase() ?? 'Activated')
+          : 'Not Activated';
+      _checkingActivation = false;
+    });
+  }
 
   Future<void> _checkActivationStatus({bool forceRefresh = false}) async {
     setState(() {
@@ -86,84 +118,15 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     });
 
     try {
-      final activationBox = await Hive.openBox('activation_cache');
+      await ActivationStatusService.initialize();
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: false,
+      );
 
-      if (!forceRefresh) {
-        // Try cached data first
-        final cachedActivation = activationBox.get('user_activated');
-        final cachedTimestamp = activationBox.get('activation_timestamp');
+      _applyActivationSnapshot(status);
 
-        if (cachedActivation != null && cachedTimestamp != null) {
-          final timestamp = DateTime.parse(cachedTimestamp);
-          final now = DateTime.now();
-          final difference = now.difference(timestamp);
-
-          // Use cached data if it's less than 5 minutes old
-          if (difference.inMinutes < 5) {
-            setState(() {
-              _isUserActivated = cachedActivation;
-              _checkingActivation = false;
-              _activationStatusMessage = _isUserActivated
-                  ? 'Account activated'
-                  : 'Account not activated';
-            });
-            print('✅ Using cached activation status: $_isUserActivated');
-            return;
-          }
-        }
-      }
-
-      // Always fetch fresh data when forceRefresh is true or cache expired
-      try {
-        final activationData = await _apiService.getActivationStatus();
-
-        if (activationData != null && activationData.isValid) {
-          setState(() {
-            _isUserActivated = true;
-            _activationStatusMessage =
-                '${activationData.grade?.toUpperCase() ?? 'Activated'}';
-          });
-
-          // Cache the result with timestamp
-          await activationBox.put('user_activated', true);
-          await activationBox.put(
-            'activation_timestamp',
-            DateTime.now().toIso8601String(),
-          );
-          await activationBox.put('activation_grade', activationData.grade);
-          print('✅ User is activated: ${activationData.grade}');
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated';
-          });
-
-          // Cache the result
-          await activationBox.put('user_activated', false);
-          await activationBox.put(
-            'activation_timestamp',
-            DateTime.now().toIso8601String(),
-          );
-          print('ℹ️ User is not activated');
-        }
-      } catch (e) {
-        print('❌ Error fetching activation from API: $e');
-
-        // Fallback to cached data if available
-        final cachedActivation = activationBox.get('user_activated');
-        if (cachedActivation != null) {
-          setState(() {
-            _isUserActivated = cachedActivation;
-            _activationStatusMessage = _isUserActivated
-                ? 'Account activated (offline)'
-                : 'Account not activated (offline)';
-          });
-        } else {
-          setState(() {
-            _isUserActivated = false;
-            _activationStatusMessage = 'Not Activated (offline)';
-          });
-        }
+      if (forceRefresh || status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
       }
     } catch (e) {
       print('❌ Error in activation check: $e');
@@ -354,6 +317,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       _isOffline = isOffline;
       _isLoading = false;
       _isEmptyTopic = false;
+      _currentPageIndex = 0;
     });
 
     // Initialize UI arrays
@@ -447,6 +411,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       _isLoading = false;
       _isEmptyTopic = isEmptyTopic;
       _errorMessage = message;
+      _currentPageIndex = 0;
     });
 
     print('📭 No questions: $message');
@@ -465,6 +430,148 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     _flagCounts.addAll(List.generate(_questions.length, (index) => 0));
 
     print('📊 UI Arrays initialized for ${_questions.length} questions');
+  }
+
+  int get _totalPages {
+    if (_questions.isEmpty) return 0;
+    return (_questions.length / _questionsPerPage).ceil();
+  }
+
+  int get _currentPageStartIndex => _currentPageIndex * _questionsPerPage;
+
+  int get _currentPageEndIndex =>
+      min(_currentPageStartIndex + _questionsPerPage, _questions.length);
+
+  int get _visibleQuestionCount =>
+      max(0, _currentPageEndIndex - _currentPageStartIndex);
+
+  bool get _hasMultiplePages => _totalPages > 1;
+
+  Future<void> _changePage(int nextPageIndex) async {
+    if (_questions.isEmpty) return;
+
+    final clampedPage = nextPageIndex.clamp(0, _totalPages - 1);
+    if (clampedPage == _currentPageIndex) return;
+
+    setState(() {
+      _currentPageIndex = clampedPage;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!_questionsScrollController.hasClients) return;
+      await _questionsScrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  Widget _buildPageStatusCard() {
+    if (_questions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final start = _currentPageStartIndex + 1;
+    final end = _currentPageEndIndex;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Text(
+            'Questions $start-$end of ${_questions.length}',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1A1A2E),
+            ),
+          ),
+          const Spacer(),
+          if (_hasMultiplePages)
+            Text(
+              'Page ${_currentPageIndex + 1}/$_totalPages',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaginationControls() {
+    if (!_hasMultiplePages) {
+      return const SizedBox.shrink();
+    }
+
+    final isFirstPage = _currentPageIndex == 0;
+    final isLastPage = _currentPageIndex == _totalPages - 1;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'You are viewing questions ${_currentPageStartIndex + 1}-${_currentPageEndIndex}.',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: isFirstPage
+                      ? null
+                      : () => _changePage(_currentPageIndex - 1),
+                  icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                  label: const Text('Previous'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: isLastPage
+                      ? null
+                      : () => _changePage(_currentPageIndex + 1),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: Text(isLastPage ? 'Completed' : 'Next'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    disabledForegroundColor: Colors.grey.shade600,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   // Helper method to fetch questions from API
@@ -1154,8 +1261,16 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          final surface = isDark ? const Color(0xFF101A2B) : Colors.white;
+          final titleColor = isDark
+              ? const Color(0xFFF8FAFC)
+              : const Color(0xFF1A1A2E);
+          final bodyColor = isDark
+              ? const Color(0xFFCBD5E1)
+              : const Color(0xFF6B7280);
           return Dialog(
-            backgroundColor: Colors.white,
+            backgroundColor: surface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
             ),
@@ -1174,10 +1289,10 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
                   const SizedBox(height: 16),
                   Text(
                     _isFlagged[index] ? 'Update Flag' : 'Flag Question',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
+                      color: titleColor,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1186,10 +1301,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
                         ? 'You have already flagged this question. You can update your reason.'
                         : 'Why are you flagging this question?',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFF6B7280),
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: bodyColor, fontSize: 14),
                   ),
 
                   const SizedBox(height: 20),
@@ -1510,15 +1622,16 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
     final firstColumnCount = tabRows.first.split(RegExp(r'\t+')).length;
     if (firstColumnCount < 2) return false;
 
-    return tabRows.take(4).every(
-      (row) => row.split(RegExp(r'\t+')).length == firstColumnCount,
-    );
+    return tabRows
+        .take(4)
+        .every((row) => row.split(RegExp(r'\t+')).length == firstColumnCount);
   }
 
   Widget _buildHtmlFormattedContent(String content, {bool isAnswer = false}) {
     final processedContent = _prepareHtmlContentForRendering(content);
-    final textColor =
-        isAnswer ? const Color(0xFF10B981) : const Color(0xFF333333);
+    final textColor = isAnswer
+        ? const Color(0xFF10B981)
+        : const Color(0xFF333333);
 
     return Html(
       data: processedContent,
@@ -1615,10 +1728,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
         ),
       ],
       style: {
-        'html': Style(
-          margin: Margins.zero,
-          padding: HtmlPaddings.zero,
-        ),
+        'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
         'body': Style(
           margin: Margins.zero,
           padding: HtmlPaddings.zero,
@@ -1680,9 +1790,7 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
           lineHeight: LineHeight(1.6),
           margin: Margins.only(bottom: 6),
         ),
-        'img': Style(
-          margin: Margins.only(top: 10, bottom: 10),
-        ),
+        'img': Style(margin: Margins.only(top: 10, bottom: 10)),
         'blockquote': Style(
           padding: HtmlPaddings.only(left: 12, top: 8, bottom: 8),
           margin: Margins.only(top: 8, bottom: 8),
@@ -1696,20 +1804,27 @@ class _TestQuestionsScreenState extends State<TestQuestionsScreen> {
   }
 
   String _prepareHtmlContentForRendering(String content) {
-    String processed = content.trim();
+    String processed = LatexRenderUtils.sanitizeStoredMathTags(content).trim();
 
     if (!_looksLikeHtml(processed) && _looksLikeTabularPlainText(processed)) {
       processed = _convertPlainTextTableToHtml(processed);
     } else if (!_looksLikeHtml(processed)) {
       processed = processed
           .split('\n\n')
-          .map((block) => '<p>${_escapeHtmlText(block).replaceAll('\n', '<br>')}</p>')
+          .map(
+            (block) =>
+                '<p>${_escapeHtmlText(block).replaceAll('\n', '<br>')}</p>',
+          )
           .join();
     }
 
     processed = _convertMarkdownImagesToHtml(processed);
     processed = _normalizeCkEditorImageUrls(processed);
     processed = _replaceCkEditorMathWithCustomTags(processed);
+    processed = LatexRenderUtils.replaceBracketMathWithCustomTags(
+      processed,
+      _escapeHtmlText,
+    );
     processed = _replaceDollarMathWithCustomTags(processed);
     processed = _replaceHtmlTablesWithCustomTags(processed);
 
@@ -1764,7 +1879,10 @@ $processed
     if (lines.isEmpty) return content;
 
     final rows = lines
-        .map((line) => line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList())
+        .map(
+          (line) =>
+              line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList(),
+        )
         .toList();
 
     final buffer = StringBuffer('<table><tbody>');
@@ -1845,7 +1963,8 @@ $processed
         caseSensitive: false,
         dotAll: true,
       ),
-      (match) => '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+      (match) =>
+          '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
     );
 
     result = result.replaceAllMapped(
@@ -1854,23 +1973,26 @@ $processed
         caseSensitive: false,
         dotAll: true,
       ),
-      (match) => '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+      (match) =>
+          '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
     );
 
     return result;
   }
 
   String _replaceDollarMathWithCustomTags(String content) {
-    String result = content;
+    String result = LatexRenderUtils.normalizeDelimitedMath(content);
 
     result = result.replaceAllMapped(
       RegExp(r'\$\$(.+?)\$\$', dotAll: true),
-      (match) => '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+      (match) =>
+          '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
     );
 
     result = result.replaceAllMapped(
       RegExp(r'(?<!\$)\$([^\$]+?)\$(?!\$)', dotAll: true),
-      (match) => '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+      (match) =>
+          '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
     );
 
     return result;
@@ -1878,11 +2000,7 @@ $processed
 
   String _replaceHtmlTablesWithCustomTags(String htmlContent) {
     return htmlContent.replaceAllMapped(
-      RegExp(
-        r'<table[^>]*>(.*?)</table>',
-        caseSensitive: false,
-        dotAll: true,
-      ),
+      RegExp(r'<table[^>]*>(.*?)</table>', caseSensitive: false, dotAll: true),
       (tableMatch) {
         final tableInnerHtml = tableMatch.group(1) ?? '';
         final rows = <List<String>>[];
@@ -1937,7 +2055,7 @@ $processed
   String _convertCkEditorToMarkdown(String htmlContent) {
     if (htmlContent.isEmpty) return '';
 
-    String result = htmlContent;
+    String result = LatexRenderUtils.restoreCustomTexTagsToLatex(htmlContent);
 
     // Debug: Print raw HTML
     print(
@@ -2514,7 +2632,10 @@ $processed
     return currentColumns >= 2 && currentColumns == nextColumns;
   }
 
-  List<String> _extractTabSeparatedTableLines(List<String> lines, int startIndex) {
+  List<String> _extractTabSeparatedTableLines(
+    List<String> lines,
+    int startIndex,
+  ) {
     final tableLines = <String>[];
     int? expectedColumns;
 
@@ -2786,9 +2907,7 @@ $processed
           spans.add(
             TextSpan(
               text: content,
-              style: baseStyle.copyWith(
-                decoration: TextDecoration.lineThrough,
-              ),
+              style: baseStyle.copyWith(decoration: TextDecoration.lineThrough),
             ),
           );
           index = end + 2;
@@ -2858,10 +2977,7 @@ $processed
 
       final nextToken = _findNextInlineTokenIndex(text, index + 1);
       spans.add(
-        TextSpan(
-          text: text.substring(index, nextToken),
-          style: baseStyle,
-        ),
+        TextSpan(text: text.substring(index, nextToken), style: baseStyle),
       );
       index = nextToken;
     }
@@ -2959,9 +3075,7 @@ $processed
   }
 
   Widget _buildMathWidget(String mathContent, {bool isInline = true}) {
-    String cleanMath = mathContent;
-    cleanMath = cleanMath.replaceAll(r'\over', r'\frac');
-    cleanMath = cleanMath.replaceAll(r'\pm', r'\pm');
+    final cleanMath = LatexRenderUtils.normalizeMathExpression(mathContent);
 
     return Container(
       padding: EdgeInsets.all(isInline ? 4 : 0),
@@ -2975,10 +3089,9 @@ $processed
           ),
           onErrorFallback: (FlutterMathException e) {
             print('Math rendering error: $e for expression: $cleanMath');
-            String simplifiedMath = mathContent
-                .replaceAll(r'\over', '/')
-                .replaceAll(r'\pm', '±')
-                .replaceAll(r'\sqrt', '√');
+            final simplifiedMath = LatexRenderUtils.fallbackMathText(
+              mathContent,
+            );
 
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -3049,10 +3162,13 @@ $processed
                 topRight: Radius.circular(8),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.code_rounded,
@@ -3071,7 +3187,10 @@ $processed
                     ),
                   ],
                 ),
-                Row(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -3112,6 +3231,7 @@ $processed
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
                               Icons.content_copy,
@@ -3309,10 +3429,7 @@ $processed
       margin: const EdgeInsets.symmetric(vertical: 12),
       child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: image,
-          ),
+          ClipRRect(borderRadius: BorderRadius.circular(8), child: image),
           if (altText.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -3469,8 +3586,7 @@ $processed
       final lines = tableMarkdown.trim().split('\n');
       if (lines.length < 2) return Container();
 
-      final hasHeader =
-          lines.length > 1 && _isMarkdownSeparatorLine(lines[1]);
+      final hasHeader = lines.length > 1 && _isMarkdownSeparatorLine(lines[1]);
       final rows = <List<String>>[];
 
       for (int i = 0; i < lines.length; i++) {
@@ -3497,7 +3613,10 @@ $processed
 
   Widget _buildPlainTextTable(List<String> tableLines) {
     final rows = tableLines
-        .map((line) => line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList())
+        .map(
+          (line) =>
+              line.split(RegExp(r'\t+')).map((cell) => cell.trim()).toList(),
+        )
         .toList();
 
     return _buildTable(rows, hasHeader: false);
@@ -3534,7 +3653,8 @@ $processed
               inside: BorderSide(color: Colors.grey.shade300),
             ),
             columnWidths: {
-              for (int i = 0; i < columnCount; i++) i: const IntrinsicColumnWidth(),
+              for (int i = 0; i < columnCount; i++)
+                i: const IntrinsicColumnWidth(),
             },
             children: normalizedRows.asMap().entries.map((entry) {
               final rowIndex = entry.key;
@@ -3551,10 +3671,7 @@ $processed
                       horizontal: 12,
                       vertical: 10,
                     ),
-                    child: _buildHtmlTableCell(
-                      cellHtml,
-                      isHeader: isHeaderRow,
-                    ),
+                    child: _buildHtmlTableCell(cellHtml, isHeader: isHeaderRow),
                   );
                 }).toList(),
               );
@@ -3585,9 +3702,8 @@ $processed
         ),
         TagExtension(
           tagsToExtend: {'tex-block'},
-          builder: (context) => _buildMathBlock(
-            _decodeHtmlEntities(context.innerHtml.trim()),
-          ),
+          builder: (context) =>
+              _buildMathBlock(_decodeHtmlEntities(context.innerHtml.trim())),
         ),
       ],
       style: {
@@ -3641,7 +3757,8 @@ $processed
               inside: BorderSide(color: Colors.grey.shade300),
             ),
             columnWidths: {
-              for (int i = 0; i < columnCount; i++) i: const IntrinsicColumnWidth(),
+              for (int i = 0; i < columnCount; i++)
+                i: const IntrinsicColumnWidth(),
             },
             children: normalizedRows.asMap().entries.map((entry) {
               final rowIndex = entry.key;
@@ -3658,10 +3775,7 @@ $processed
                       horizontal: 12,
                       vertical: 10,
                     ),
-                    child: _buildTableCellContent(
-                      cell,
-                      isHeader: isHeaderRow,
-                    ),
+                    child: _buildTableCellContent(cell, isHeader: isHeaderRow),
                   );
                 }).toList(),
               );
@@ -3853,7 +3967,6 @@ $processed
         .replaceAll('&para;', '¶')
         .replaceAll('&middot;', '·');
   }
-
 
   Widget _buildQuestionCard(int index) {
     final question = _questions[index];
@@ -4771,8 +4884,12 @@ $processed
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final subtitleColor =
+        theme.textTheme.bodySmall?.color ?? const Color(0xFF6B7280);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4783,15 +4900,15 @@ $processed
             ),
             Text(
               '${widget.courseName} • ${widget.sessionName}${widget.topicName != null ? ' • ${widget.topicName}' : ''}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+              style: TextStyle(fontSize: 12, color: subtitleColor),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: theme.colorScheme.surface,
         elevation: 1,
-        foregroundColor: const Color(0xFF1A1A2E),
+        foregroundColor: theme.colorScheme.onSurface,
         actions: [
           // Activation status indicator
           if (_checkingActivation)
@@ -4904,11 +5021,22 @@ $processed
                     ),
                   ),
 
+                _buildPageStatusCard(),
+
                 Expanded(
                   child: ListView.builder(
+                    controller: _questionsScrollController,
                     padding: const EdgeInsets.all(12),
-                    itemCount: _questions.length,
-                    itemBuilder: (context, index) => _buildQuestionCard(index),
+                    itemCount:
+                        _visibleQuestionCount + (_hasMultiplePages ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (_hasMultiplePages && index == _visibleQuestionCount) {
+                        return _buildPaginationControls();
+                      }
+
+                      final globalIndex = _currentPageStartIndex + index;
+                      return _buildQuestionCard(globalIndex);
+                    },
                   ),
                 ),
               ],

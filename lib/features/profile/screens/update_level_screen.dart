@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../../../core/network/api_service.dart';
+import '../../../../core/services/activation_status_service.dart';
 import '../../../../core/constants/endpoints.dart';
 
 class UpdateLevelScreen extends StatefulWidget {
@@ -19,15 +20,29 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
   bool _isActivated = false; // Changed to false by default
   String _activationStatus = 'Not Activated'; // NEW: Track activation status
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : Colors.grey.shade50;
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE5E7EB);
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : Colors.black87;
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ActivationStatusService.listenable.addListener(_handleActivationStatusChanged);
     _loadUserData();
   }
 
   @override
   void dispose() {
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -68,21 +83,15 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
   // NEW: Load activation status
   Future<void> _loadActivationStatus() async {
     try {
-      final activationData = await ApiService().getActivationStatus();
+      await ActivationStatusService.initialize();
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: false,
+      );
 
-      if (activationData != null && activationData.isValid) {
-        setState(() {
-          _isActivated = true;
-          _activationStatus =
-              '${activationData.grade?.toUpperCase() ?? 'Activated'}'; // Show grade if available
-        });
-        print('✅ User is activated: ${activationData.grade}');
-      } else {
-        setState(() {
-          _isActivated = false;
-          _activationStatus = 'Not Activated';
-        });
-        print('ℹ️ User is not activated');
+      _applyActivationSnapshot(status);
+
+      if (status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
       }
     } catch (e) {
       print('❌ Error loading activation status: $e');
@@ -91,6 +100,22 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
         _activationStatus = 'Not Activated';
       });
     }
+  }
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _isActivated = snapshot.isActivated;
+      _activationStatus = snapshot.isActivated
+          ? (snapshot.grade?.toUpperCase() ?? 'Activated')
+          : 'Not Activated';
+    });
   }
 
   Future<void> _refreshData() async {
@@ -258,18 +283,18 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: Colors.grey.shade50,
+        backgroundColor: _pageBackground,
         appBar: AppBar(
-          backgroundColor: Colors.white,
+          backgroundColor: _surfaceColor,
           elevation: 1,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: Icon(Icons.arrow_back, color: _titleColor),
             onPressed: () => Navigator.pop(context),
           ),
-          title: const Text(
+          title: Text(
             'Academic Profile',
             style: TextStyle(
-              color: Colors.black,
+              color: _titleColor,
               fontWeight: FontWeight.w700,
               fontSize: 18,
             ),
@@ -281,18 +306,18 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: _pageBackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: _surfaceColor,
         elevation: 1,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: _titleColor),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Academic Profile',
           style: TextStyle(
-            color: Colors.black,
+            color: _titleColor,
             fontWeight: FontWeight.w700,
             fontSize: 18,
           ),
@@ -331,11 +356,12 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: _isDark ? 0.22 : 0.1),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -379,10 +405,10 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
               children: [
                 Text(
                   _userName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+                    color: _titleColor,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -410,7 +436,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
                   _userDepartment,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey.shade600,
+                    color: _bodyColor,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 2,
@@ -438,7 +464,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.18 : 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -519,11 +545,12 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: _isDark ? 0.22 : 0.1),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -532,18 +559,18 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Academic Information',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
-              color: Colors.black87,
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Your current academic details and institution information',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
+            style: TextStyle(fontSize: 14, color: _bodyColor),
           ),
           const SizedBox(height: 24),
 

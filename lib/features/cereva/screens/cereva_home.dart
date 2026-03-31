@@ -16,9 +16,12 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: isDark
+          ? const Color(0xFF09111F)
+          : const Color(0xFFF8FAFC),
       appBar: CustomAppBar(
         scaffoldKey: _scaffoldKey,
         title: 'AI Home',
@@ -34,11 +37,11 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
             // Welcome Section
             _buildWelcomeSection(),
             const SizedBox(height: 32),
-            
+
             // AI Features Grid - Improved Layout
             _buildFeaturesSection(),
             const SizedBox(height: 40),
-            
+
             // History Section
             _buildHistorySection(),
           ],
@@ -184,7 +187,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
     required VoidCallback onTap,
   }) {
     bool isPressed = _pressedCard == key;
-    
+
     return GestureDetector(
       onTapDown: (_) {
         setState(() {
@@ -224,11 +227,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
               right: -10,
               child: Opacity(
                 opacity: 0.1,
-                child: Icon(
-                  icon,
-                  size: 80,
-                  color: Colors.white,
-                ),
+                child: Icon(icon, size: 80, color: Colors.white),
               ),
             ),
             Padding(
@@ -243,11 +242,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      icon,
-                      color: Colors.white,
-                      size: 28,
-                    ),
+                    child: Icon(icon, color: Colors.white, size: 28),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -302,7 +297,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
     required VoidCallback onTap,
   }) {
     bool isPressed = _pressedCard == key;
-    
+
     return GestureDetector(
       onTapDown: (_) {
         setState(() {
@@ -348,11 +343,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      icon,
-                      color: Colors.white,
-                      size: 18,
-                    ),
+                    child: Icon(icon, color: Colors.white, size: 18),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -404,7 +395,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
     required VoidCallback onTap,
   }) {
     bool isPressed = _pressedCard == key;
-    
+
     return GestureDetector(
       onTapDown: (_) {
         setState(() {
@@ -448,11 +439,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(
-                      icon,
-                      color: Colors.white,
-                      size: 24,
-                    ),
+                    child: Icon(icon, color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -537,11 +524,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(
-                    Icons.arrow_forward,
-                    color: Colors.grey[600],
-                    size: 16,
-                  ),
+                  Icon(Icons.arrow_forward, color: Colors.grey[600], size: 16),
                 ],
               ),
             ),
@@ -586,13 +569,15 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
         decoration: BoxDecoration(
           color: isActive ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          boxShadow: isActive ? [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ] : null,
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Text(
           text,
@@ -674,11 +659,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                 color: color.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(
-                Icons.description,
-                color: color,
-                size: 20,
-              ),
+              child: Icon(Icons.description, color: color, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -699,16 +680,16 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
@@ -740,7 +721,9 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
         const SizedBox(height: 12),
         _buildChatItem('What are the best models apps 2025...'),
         const SizedBox(height: 12),
-        _buildChatItem('What are the top trending collaborating interface design tools 2023'),
+        _buildChatItem(
+          'What are the top trending collaborating interface design tools 2023',
+        ),
       ],
     );
   }
@@ -788,11 +771,7 @@ class _AIHomeScreenState extends State<AIHomeScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Icon(
-              Icons.chevron_right,
-              color: Colors.grey[400],
-              size: 20,
-            ),
+            Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
           ],
         ),
       ),

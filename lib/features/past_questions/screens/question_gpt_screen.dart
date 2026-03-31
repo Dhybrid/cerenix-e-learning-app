@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
+import '../../../core/utils/latex_render_utils.dart';
 import '../../../features/cereva/screens/ai_gpt.dart';
 import '../../../features/cereva/services/chat_service.dart';
 import '../models/past_question_models.dart';
@@ -42,7 +43,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
   Future<void> _initializeChat() async {
     await ChatService.initHive();
     _initialPrompt = _buildInitialPrompt();
-    
+
     // Auto-send the question to AI after a short delay
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sendQuestionToAI();
@@ -51,13 +52,13 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
 
   String _buildInitialPrompt() {
     String prompt = 'I need help understanding this past exam question:\n\n';
-    
+
     // Add question
-    if (widget.question.questionText != null && 
+    if (widget.question.questionText != null &&
         widget.question.questionText!.isNotEmpty) {
       prompt += '**Question:** ${widget.question.questionText}\n\n';
     }
-    
+
     // Add options if available
     if (widget.question.hasOptions) {
       final options = widget.question.getOptionsMap();
@@ -69,41 +70,44 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
         prompt += '\n';
       }
     }
-    
+
     // Add context
     prompt += '**Course:** ${widget.courseName}\n';
     if (widget.topicName != null) {
       prompt += '**Topic:** ${widget.topicName}\n';
     }
-    
+
     // Add difficulty
     prompt += '**Difficulty:** ${widget.question.difficultyText}\n\n';
-    
+
     // Add instruction
     prompt += 'Please provide a detailed explanation:\n\n';
     prompt += '1. **Explain the question** in simple terms\n';
     prompt += '2. **Analyze each option** - why it might be right or wrong\n';
-    
+
     if (widget.showAnswer && widget.question.correctAnswer.isNotEmpty) {
-      prompt += '3. **Correct Answer:** ${widget.question.correctAnswer.toUpperCase()}\n';
+      prompt +=
+          '3. **Correct Answer:** ${widget.question.correctAnswer.toUpperCase()}\n';
       prompt += '4. **Explain why this is correct** with reasoning\n';
     } else {
-      prompt += '3. **Guide me to find the correct answer** without giving it away\n';
+      prompt +=
+          '3. **Guide me to find the correct answer** without giving it away\n';
     }
-    
+
     prompt += '5. **Provide step-by-step solution**\n';
     prompt += '6. **Similar examples** for practice\n';
     prompt += '7. **Key concepts** to remember\n\n';
-    
-    prompt += 'Please format your response clearly with headings, bullet points, and mathematical notation where applicable.';
-    
+
+    prompt +=
+        'Please format your response clearly with headings, bullet points, and mathematical notation where applicable.';
+
     return prompt;
   }
 
   Future<void> _sendQuestionToAI() async {
     // Add user message (the question)
     _addUserMessage(_initialPrompt);
-    
+
     // Generate AI response
     await _generateAIResponse(_initialPrompt);
   }
@@ -124,13 +128,13 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
       _isLoading = true;
       _hasReachedMax = false;
     });
-    
+
     try {
       final response = await ChatService.sendMessage(userMessage);
-      
+
       setState(() {
         _isLoading = false;
-        
+
         if (response['success']) {
           _chatMessages.add({
             'text': response['reply'],
@@ -141,7 +145,9 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
         } else {
           if (response['error'] == 'daily_limit_exceeded') {
             _chatMessages.add({
-              'text': response['message'] ?? 'Daily message limit reached. Please try again tomorrow.',
+              'text':
+                  response['message'] ??
+                  'Daily message limit reached. Please try again tomorrow.',
               'isUser': false,
               'isError': true,
               'isLimitReached': true,
@@ -171,7 +177,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
         });
       });
     }
-    
+
     _scrollToBottom();
   }
 
@@ -191,7 +197,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Copied to clipboard'), 
+        content: Text('Copied to clipboard'),
         backgroundColor: Color(0xFF10B981),
         duration: Duration(seconds: 2),
       ),
@@ -200,12 +206,12 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
 
   void _copyQuestionToClipboard() {
     String questionText = '';
-    
-    if (widget.question.questionText != null && 
+
+    if (widget.question.questionText != null &&
         widget.question.questionText!.isNotEmpty) {
       questionText = widget.question.questionText!;
     }
-    
+
     if (widget.question.hasOptions) {
       final options = widget.question.getOptionsMap();
       if (options.isNotEmpty) {
@@ -215,9 +221,9 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
         });
       }
     }
-    
+
     Clipboard.setData(ClipboardData(text: questionText));
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Question copied to clipboard'),
@@ -262,7 +268,10 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF6366F1),
                       borderRadius: BorderRadius.circular(6),
@@ -278,11 +287,16 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: widget.question.difficultyColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: widget.question.difficultyColor.withOpacity(0.3)),
+                      border: Border.all(
+                        color: widget.question.difficultyColor.withOpacity(0.3),
+                      ),
                     ),
                     child: Text(
                       widget.question.difficultyText,
@@ -296,7 +310,11 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                 ],
               ),
               IconButton(
-                icon: const Icon(Icons.content_copy, size: 18, color: Color(0xFF6B7280)),
+                icon: const Icon(
+                  Icons.content_copy,
+                  size: 18,
+                  color: Color(0xFF6B7280),
+                ),
                 onPressed: _copyQuestionToClipboard,
                 tooltip: 'Copy question',
                 padding: EdgeInsets.zero,
@@ -305,9 +323,9 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          
+
           // Question text
-          if (widget.question.questionText != null && 
+          if (widget.question.questionText != null &&
               widget.question.questionText!.isNotEmpty)
             Text(
               widget.question.questionText!,
@@ -317,7 +335,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                 color: Color(0xFF1A1A2E),
               ),
             ),
-          
+
           // Options
           if (widget.question.hasOptions)
             Column(
@@ -342,7 +360,10 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                       border: Border.all(color: Colors.grey.shade200),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -369,7 +390,10 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                           Expanded(
                             child: Text(
                               option.value,
-                              style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A2E)),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF1A1A2E),
+                              ),
                             ),
                           ),
                         ],
@@ -379,7 +403,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                 }).toList(),
               ],
             ),
-          
+
           // Course info
           const SizedBox(height: 12),
           Container(
@@ -404,11 +428,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                   ),
                 ),
                 if (widget.topicName != null) ...[
-                  Container(
-                    height: 16,
-                    width: 1,
-                    color: Colors.grey.shade300,
-                  ),
+                  Container(height: 16, width: 1, color: Colors.grey.shade300),
                   const SizedBox(width: 8),
                   const Icon(Icons.label, size: 12, color: Color(0xFF8B5CF6)),
                   const SizedBox(width: 4),
@@ -432,12 +452,14 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
   Widget _buildMessageBubble(Map<String, dynamic> message, int index) {
     final isUser = message['isUser'];
     final isError = message['isError'] ?? false;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           if (!isUser)
             Container(
@@ -448,32 +470,41 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                isError ? Icons.error_rounded : Icons.auto_awesome_rounded, 
-                color: Colors.white, 
-                size: 16
+                isError ? Icons.error_rounded : Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 16,
               ),
             ),
           if (!isUser) const SizedBox(width: 8),
           Flexible(
             child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Container(
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                  ),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: isUser ? const Color(0xFF6366F1) : 
-                           isError ? Colors.red.shade50 : Colors.white,
+                    color: isUser
+                        ? const Color(0xFF6366F1)
+                        : isError
+                        ? Colors.red.shade50
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: !isUser && !isError ? [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ] : null,
+                    boxShadow: !isUser && !isError
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.03),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
                   ),
-                  child: isUser 
+                  child: isUser
                       ? SelectableText(
                           message['text'],
                           style: const TextStyle(
@@ -490,17 +521,28 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
                     children: [
                       GestureDetector(
                         onTap: () => _copyToClipboard(message['text']),
-                        child: Icon(Icons.content_copy_rounded, color: Colors.grey.shade500, size: 16),
+                        child: Icon(
+                          Icons.content_copy_rounded,
+                          color: Colors.grey.shade500,
+                          size: 16,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       GestureDetector(
                         onTap: _regenerateResponse,
-                        child: Icon(Icons.refresh_rounded, color: Colors.grey.shade500, size: 16),
+                        child: Icon(
+                          Icons.refresh_rounded,
+                          color: Colors.grey.shade500,
+                          size: 16,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'Copy • Regenerate',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -517,11 +559,7 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
     if (isError) {
       return SelectableText(
         text,
-        style: const TextStyle(
-          color: Colors.red,
-          fontSize: 15,
-          height: 1.4,
-        ),
+        style: const TextStyle(color: Colors.red, fontSize: 15, height: 1.4),
       );
     }
 
@@ -541,7 +579,11 @@ class _QuestionGPTScreenState extends State<QuestionGPTScreen> {
               color: Color(0xFF6366F1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 16),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: Colors.white,
+              size: 16,
+            ),
           ),
           const SizedBox(width: 8),
           Container(
@@ -691,29 +733,56 @@ class MathMarkdownBody extends StatelessWidget {
   final String data;
   final Function(String) onCopyCode;
 
-  const MathMarkdownBody({super.key, required this.data, required this.onCopyCode});
+  const MathMarkdownBody({
+    super.key,
+    required this.data,
+    required this.onCopyCode,
+  });
 
   String _preprocessMath(String text) {
-    return text.replaceAllMapped(
-      RegExp(r'\$\$([^\$]+)\$\$'),
-      (match) => '\$${match.group(1)}\$'
+    final normalized = LatexRenderUtils.sanitizeStoredMathTags(text);
+    return normalized.replaceAllMapped(
+      RegExp(r'\$\$([\s\S]+?)\$\$', dotAll: true),
+      (match) => '\$${match.group(1)}\$',
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final processedData = _preprocessMath(data);
-    
+
     return MarkdownBody(
       data: processedData,
       styleSheet: MarkdownStyleSheet(
         p: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFF1A1A2E)),
-        strong: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
-        em: const TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF1A1A2E)),
-        h1: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
-        h2: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
-        h3: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
-        h4: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+        strong: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
+        em: const TextStyle(
+          fontStyle: FontStyle.italic,
+          color: Color(0xFF1A1A2E),
+        ),
+        h1: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
+        h2: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
+        h3: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
+        h4: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
         blockquote: TextStyle(
           color: Colors.grey.shade700,
           fontStyle: FontStyle.italic,
@@ -732,20 +801,22 @@ class MathMarkdownBody extends StatelessWidget {
         ),
         listBullet: const TextStyle(fontSize: 15, color: Color(0xFF1A1A2E)),
         tableBody: const TextStyle(fontSize: 15, color: Color(0xFF1A1A2E)),
-        tableHead: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+        tableHead: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
+        ),
       ),
       builders: {
         'code': CodeElementBuilder(onCopy: onCopyCode),
         'math': MathElementBuilder(),
       },
-      extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
-        [
-          md.EmojiSyntax(),
-          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-          InlineMathSyntax(),
-        ],
-      ),
+      extensionSet:
+          md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
+            md.EmojiSyntax(),
+            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            InlineMathSyntax(),
+          ]),
     );
   }
 }
@@ -760,10 +831,12 @@ class CodeElementBuilder extends MarkdownElementBuilder {
     final codeContent = element.textContent;
     final lines = codeContent.split('\n').length;
     final isMultiLine = lines > 5;
-    
+
     return Container(
       width: double.infinity,
-      constraints: isMultiLine ? BoxConstraints(maxHeight: 300) : BoxConstraints(),
+      constraints: isMultiLine
+          ? BoxConstraints(maxHeight: 300)
+          : BoxConstraints(),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(8),
@@ -782,8 +855,10 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                 topRight: Radius.circular(8),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   'Code',
@@ -796,8 +871,13 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                 GestureDetector(
                   onTap: () => onCopy(codeContent),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.content_copy, size: 14, color: Colors.grey.shade700),
+                      Icon(
+                        Icons.content_copy,
+                        size: 14,
+                        color: Colors.grey.shade700,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Copy',
@@ -853,10 +933,10 @@ class MathElementBuilder extends MarkdownElementBuilder {
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     String mathContent = element.textContent;
-    
+
     mathContent = mathContent.trim();
     bool needsWrapping = mathContent.length > 40;
-    
+
     try {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -866,7 +946,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.blue.shade200),
         ),
-        child: needsWrapping 
+        child: needsWrapping
             ? _buildWrappedMath(mathContent)
             : _buildSingleLineMath(mathContent),
       );
@@ -874,7 +954,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       return _buildMathFallback(mathContent, needsWrapping);
     }
   }
-  
+
   Widget _buildSingleLineMath(String mathContent) {
     return Center(
       child: ConstrainedBox(
@@ -883,10 +963,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           fit: BoxFit.scaleDown,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(
-              fontSize: 18,
-              color: Colors.blue.shade900,
-            ),
+            textStyle: TextStyle(fontSize: 18, color: Colors.blue.shade900),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, false);
             },
@@ -895,7 +972,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       ),
     );
   }
-  
+
   Widget _buildWrappedMath(String mathContent) {
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: 120),
@@ -905,10 +982,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           scrollDirection: Axis.horizontal,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(
-              fontSize: 16,
-              color: Colors.blue.shade900,
-            ),
+            textStyle: TextStyle(fontSize: 16, color: Colors.blue.shade900),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, true);
             },
@@ -917,7 +991,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
       ),
     );
   }
-  
+
   Widget _buildMathFallback(String mathContent, bool isWrapped) {
     return Container(
       padding: const EdgeInsets.all(8),

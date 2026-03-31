@@ -7,6 +7,7 @@ import '../../../core/network/api_service.dart';
 import '../../../core/constants/endpoints.dart';
 // ADD THIS IMPORT:
 import '../../../features/courses/models/course_models.dart';
+import '../../../core/services/activation_status_service.dart';
 import '../../../core/services/event_bus.dart';
 
 class ProfileDetailsScreen extends StatefulWidget {
@@ -35,11 +36,35 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   List<Course> _userCourses = []; // Add this line
   bool _loadingCourses = false; // Add this line
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : Colors.black87;
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600;
+  Color get _mutedColor =>
+      _isDark ? const Color(0xFF94A3B8) : Colors.grey.shade500;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _dividerColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey.shade300;
+
   @override
   void initState() {
     super.initState();
+    ActivationStatusService.listenable.addListener(_handleActivationStatusChanged);
     _loadUserData();
     _fetchUserCourses(); // ADD THIS LINE
+  }
+
+  @override
+  void dispose() {
+    ActivationStatusService.listenable.removeListener(
+      _handleActivationStatusChanged,
+    );
+    _refreshController.dispose();
+    super.dispose();
   }
 
   // ADD THIS METHOD: Fetch user courses
@@ -169,26 +194,42 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
   // NEW: Load activation status to determine rank
   Future<void> _loadActivationStatus() async {
     try {
-      final activationData = await ApiService().getActivationStatus();
+      await ActivationStatusService.initialize();
+      final status = await ActivationStatusService.resolveStatus(
+        forceRefresh: false,
+      );
 
-      if (activationData != null) {
-        setState(() {
-          _currentActivation = activationData.toJson();
-          _userRank = activationData.grade ?? 'Regular';
-        });
-        print('✅ User rank: ${activationData.grade}');
-      } else {
-        setState(() {
-          _userRank = 'Regular';
-        });
-        print('ℹ️ No active activation, using default rank: Regular');
+      _applyActivationSnapshot(status);
+
+      if (status.isStale || !status.hasCachedValue) {
+        ActivationStatusService.refreshInBackground(forceRefresh: true);
       }
     } catch (e) {
       print('❌ Error loading activation status: $e');
       setState(() {
+        _currentActivation = null;
         _userRank = 'Regular';
       });
     }
+  }
+
+  void _handleActivationStatusChanged() {
+    if (!mounted) return;
+    _applyActivationSnapshot(ActivationStatusService.current);
+  }
+
+  void _applyActivationSnapshot(ActivationStatusSnapshot snapshot) {
+    if (!mounted) return;
+
+    setState(() {
+      _userRank = snapshot.isActivated ? (snapshot.grade ?? 'Regular') : 'Regular';
+      _currentActivation = snapshot.isActivated
+          ? {
+              'grade': snapshot.grade,
+              'is_valid': true,
+            }
+          : null;
+    });
   }
 
   // NEW: Load user referral code
@@ -482,7 +523,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     // Show error screen if no data and we have an error
     if (!_hasData && _errorMessage != null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: _pageBackground,
         body: _buildErrorWidget(),
       );
     }
@@ -490,7 +531,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     // Show empty state if no data but no error (still loading initially)
     if (!_hasData && _errorMessage == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: _pageBackground,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -505,7 +546,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: _pageBackground,
       body: Stack(
         children: [
           SmartRefresher(
@@ -710,7 +751,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
-                            color: Colors.black87,
+                            color: _titleColor,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -734,7 +775,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                                 width: 4,
                                 height: 4,
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade400,
+                                  color: _mutedColor,
                                   shape: BoxShape.circle,
                                 ),
                               ),
@@ -754,7 +795,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                           _userUniversity,
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey.shade600,
+                            color: _bodyColor,
                             fontWeight: FontWeight.w500,
                           ),
                           textAlign: TextAlign.center,
@@ -866,12 +907,14 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.blue.shade50, Colors.orange.shade50],
+          colors: _isDark
+              ? [const Color(0xFF162235), const Color(0xFF1A2338)]
+              : [Colors.blue.shade50, Colors.orange.shade50],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(_isDark ? 0.22 : 0.1),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
@@ -938,7 +981,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             label,
             style: TextStyle(
               fontSize: 10,
-              color: Colors.grey.shade600,
+              color: _bodyColor,
               fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
@@ -952,55 +995,12 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _dividerColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'About Me',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            _userBio,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCourseInfo() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(_isDark ? 0.18 : 0.1),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
@@ -1012,12 +1012,53 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
+                'About Me',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: _titleColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _userBio,
+            style: TextStyle(fontSize: 14, color: _bodyColor, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCourseInfo() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _surfaceColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _dividerColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(_isDark ? 0.18 : 0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
                 'Academic Information',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Colors.black87,
+                  color: _titleColor,
                 ),
               ),
               TextButton(
@@ -1094,10 +1135,14 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [color.withOpacity(0.05), color.withOpacity(0.1)],
+          colors: _isDark
+              ? [color.withOpacity(0.12), color.withOpacity(0.2)]
+              : [color.withOpacity(0.05), color.withOpacity(0.1)],
         ),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(
+          color: _isDark ? color.withOpacity(0.32) : color.withOpacity(0.2),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1108,7 +1153,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             title,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: _bodyColor,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1174,11 +1219,12 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _dividerColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(_isDark ? 0.18 : 0.1),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
@@ -1187,12 +1233,12 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Ongoing Courses',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: Colors.black87,
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 16),
@@ -1205,12 +1251,12 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               ),
             )
           else if (_userCourses.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
               child: Center(
                 child: Text(
                   'No courses available',
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                  style: TextStyle(color: _mutedColor, fontSize: 14),
                 ),
               ),
             )
@@ -1272,7 +1318,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: _isDark
+                          ? Colors.blue.withOpacity(0.16)
+                          : Colors.blue.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -1316,10 +1364,14 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [color.withOpacity(0.05), color.withOpacity(0.1)],
+          colors: _isDark
+              ? [color.withOpacity(0.12), color.withOpacity(0.2)]
+              : [color.withOpacity(0.05), color.withOpacity(0.1)],
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(
+          color: _isDark ? color.withOpacity(0.32) : color.withOpacity(0.2),
+        ),
       ),
       child: Row(
         children: [
@@ -1348,15 +1400,15 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               children: [
                 Text(
                   code,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: _titleColor,
                   ),
                 ),
                 Text(
                   title,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 12, color: _bodyColor),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1510,8 +1562,8 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     return Container(
       height: MediaQuery.of(context).size.height * 0.50,
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: _surfaceColor,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(30),
           topRight: Radius.circular(30),
@@ -1525,23 +1577,23 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade400,
+                color: _mutedColor,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'Invite Friends & Earn',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
-                color: Colors.black87,
+                color: _titleColor,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Share your referral code and get exclusive rewards',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 14, color: _bodyColor),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 25),
@@ -1551,10 +1603,16 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.blue.shade50, Colors.orange.shade50],
+                  colors: _isDark
+                      ? [const Color(0xFF162235), const Color(0xFF1A2338)]
+                      : [Colors.blue.shade50, Colors.orange.shade50],
                 ),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blue.shade100),
+                border: Border.all(
+                  color: _isDark
+                      ? Colors.blue.withOpacity(0.22)
+                      : Colors.blue.shade100,
+                ),
               ),
               child: Column(
                 children: [
@@ -1582,15 +1640,19 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                         vertical: 16,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: _secondarySurfaceColor,
                         borderRadius: BorderRadius.circular(15),
                         border: Border.all(
-                          color: Colors.blue.shade200,
+                          color: _isDark
+                              ? Colors.blue.withOpacity(0.28)
+                              : Colors.blue.shade200,
                           width: 2,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.blue.shade100,
+                            color: _isDark
+                                ? Colors.black.withOpacity(0.2)
+                                : Colors.blue.shade100,
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -1683,7 +1745,9 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
                       child: ElevatedButton.icon(
                         onPressed: _copyReferralCode,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade50,
+                          backgroundColor: _isDark
+                              ? const Color(0xFF162235)
+                              : Colors.blue.shade50,
                           foregroundColor: Colors.blue.shade700,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -1738,9 +1802,15 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.green.shade50,
+                color: _isDark
+                    ? Colors.green.withOpacity(0.12)
+                    : Colors.green.shade50,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade100),
+                border: Border.all(
+                  color: _isDark
+                      ? Colors.green.withOpacity(0.22)
+                      : Colors.green.shade100,
+                ),
               ),
               child: Column(
                 children: [

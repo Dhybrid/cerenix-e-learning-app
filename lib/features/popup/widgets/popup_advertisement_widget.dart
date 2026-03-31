@@ -261,6 +261,8 @@
 //   }
 // }
 // lib/features/popup/widgets/popup_advertisement_widget.dart
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/popup_advertisement.dart';
@@ -315,15 +317,14 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
       _controller.forward();
     });
 
-    // Record that popup was shown
     _recordPopupShown();
   }
 
   Future<void> _recordPopupShown() async {
     try {
-      await widget.popup.trackUserViews
-          ? _popupService.recordPopupShown(widget.popup, widget.userId)
-          : null;
+      if (widget.popup.trackUserViews) {
+        await _popupService.recordPopupShown(widget.popup, widget.userId);
+      }
     } catch (e) {
       print('⚠️ Error recording popup shown: $e');
     }
@@ -369,7 +370,7 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black54, // Semi-transparent dark overlay
+      color: Colors.transparent,
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
@@ -380,7 +381,14 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
         },
         child: Stack(
           children: [
-            // Tap anywhere to close (transparent overlay)
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(color: Colors.black.withValues(alpha: 0.12)),
+              ),
+            ),
+
+            // Tap anywhere to close
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: _closePopup,
@@ -398,77 +406,47 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
                   maxWidth: MediaQuery.of(context).size.width * 0.9,
                   maxHeight: MediaQuery.of(context).size.height * 0.8,
                 ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.16),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
                 child: Stack(
                   children: [
                     // Clickable image only - NO BACKGROUND
                     GestureDetector(
                       onTap: _handlePopupClick,
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(20),
                         child: Image.network(
-                          widget.popup.imageUrl,
+                          widget.popup.displayImageUrl,
                           fit: BoxFit.contain,
                           width: double.infinity,
                           height: double.infinity,
+                          frameBuilder:
+                              (context, child, frame, wasSynchronouslyLoaded) {
+                                if (wasSynchronouslyLoaded || frame != null) {
+                                  return AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 220),
+                                    opacity: 1,
+                                    child: child,
+                                  );
+                                }
+                                return _buildFallbackPopupContent(
+                                  isError: false,
+                                );
+                              },
                           errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 300,
-                              height: 400,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade800,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.image_not_supported,
-                                    size: 60,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Image failed to load',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade400,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  if (widget.popup.title != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Text(
-                                        widget.popup.title!,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
+                            return _buildFallbackPopupContent(isError: true);
                           },
                           loadingBuilder: (context, child, loadingProgress) {
                             if (loadingProgress == null) return child;
-                            return Container(
-                              width: 300,
-                              height: 400,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade800,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  value:
-                                      loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded /
-                                            loadingProgress.expectedTotalBytes!
-                                      : null,
-                                ),
-                              ),
-                            );
+                            return _buildFallbackPopupContent(isError: false);
                           },
                         ),
                       ),
@@ -484,8 +462,11 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
                           width: 36,
                           height: 36,
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
+                            color: Colors.black.withValues(alpha: 0.42),
                             shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.18),
+                            ),
                           ),
                           child: const Icon(
                             Icons.close,
@@ -507,8 +488,11 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
+                            color: Colors.black.withValues(alpha: 0.42),
                             borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
                           ),
                           child: Row(
                             children: [
@@ -534,6 +518,113 @@ class _PopupAdvertisementWidgetState extends State<PopupAdvertisementWidget>
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallbackPopupContent({required bool isError}) {
+    return Container(
+      width: 300,
+      height: 400,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        image: const DecorationImage(
+          image: AssetImage('assets/images/advertboard.jpeg'),
+          fit: BoxFit.cover,
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.black.withValues(alpha: 0.08),
+              Colors.black.withValues(alpha: 0.26),
+            ],
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 14,
+              top: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                  ),
+                ),
+                child: const Text(
+                  'Sponsored',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            if (isError)
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.image_not_supported_outlined,
+                      size: 54,
+                      color: Colors.white.withValues(alpha: 0.86),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.popup.title ?? 'Advertisement',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.14),
+                      ),
+                    ),
+                    child: const Text(
+                      'Preparing advert',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

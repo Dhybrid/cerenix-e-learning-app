@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 import '../../../core/constants/endpoints.dart';
+import '../utils/ai_response_utils.dart';
 
 class VoiceChatScreen extends StatefulWidget {
   const VoiceChatScreen({super.key});
@@ -45,7 +46,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   int _speechRestartCount = 0;
 
   // Configuration
-  static const _silenceTimeout = Duration(seconds: 3); 
+  static const _silenceTimeout = Duration(seconds: 3);
   static const _maxRestartAttempts = 30;
   static const _ttsChunkLength = 360;
 
@@ -126,7 +127,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
       final safeStart = start.clamp(0, _activeSpeechChunk.length);
       final safeEnd = end.clamp(safeStart, _activeSpeechChunk.length);
-      final currentSlice = _activeSpeechChunk.substring(safeStart, safeEnd).trim();
+      final currentSlice = _activeSpeechChunk
+          .substring(safeStart, safeEnd)
+          .trim();
 
       if (currentSlice.isNotEmpty) {
         setState(() {
@@ -179,7 +182,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   void _ensureListeningStaysAlive() {
     _silenceTimer?.cancel();
     _silenceTimer = Timer(const Duration(seconds: 4), () {
-      if (!_isContinuousListening || _userStopped || _state != VoiceChatState.listening) {
+      if (!_isContinuousListening ||
+          _userStopped ||
+          _state != VoiceChatState.listening) {
         return;
       }
 
@@ -192,7 +197,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   void _speakGreeting() async {
     if (_state != VoiceChatState.ready) return;
 
-    final greeting = "Hello! I'm Cerava, your learning assistant. How can I help you today?";
+    final greeting =
+        "Hello! I'm Cerava, your learning assistant. How can I help you today?";
 
     setState(() {
       _boardContent = greeting;
@@ -224,38 +230,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   }
 
   String _cleanTextForTTS(String text) {
-    String cleaned = text;
-
-    cleaned = cleaned.replaceAll(RegExp(r'```[\s\S]*?```'), ' Here is a code example. ');
-    cleaned = cleaned.replaceAll(RegExp(r'!\[[^\]]*\]\([^)]+\)'), ' The illustration is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), ' The illustration is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'`([^`]+)`'), ' code ');
-    cleaned = cleaned.replaceAll(RegExp(r'\$\$[\s\S]*?\$\$'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'#+\s*'), '');
-    cleaned = cleaned.replaceAll(RegExp(r'\*\*|\*|__|_'), '');
-    cleaned = cleaned.replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1');
-    cleaned = cleaned.replaceAll(RegExp(r'\$[^$]*?\$'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'\\\((.*?)\\\)'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'\\\[(.*?)\\\]'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F300}-\u{1FAFF}]', unicode: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{2600}-\u{27BF}]', unicode: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'[|•●■◆★☆◦▪▶►]+'), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'[{}<>]+'), ' ');
-    cleaned = cleaned.replaceAll(
-      RegExp(
-        r'\b(?:diagram|illustration|figure|image|chart|graph)\b\s*:?',
-        caseSensitive: false,
-      ),
-      ' visual ',
-    );
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*[*-]\s+', multiLine: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*\d+\.\s+', multiLine: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'\n{2,}'), '. ');
-    cleaned = cleaned.replaceAll('\n', ' ');
-    cleaned = cleaned.replaceAll(';', '. ');
-
-    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ');
-    return cleaned.trim();
+    return AiResponseUtils.sanitizeForSpeech(text);
   }
 
   Future<void> _speakLongText(String text) async {
@@ -342,7 +317,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       _isContinuousListening = true;
       _userStopped = false;
       _speechRestartCount = 0;
-      _boardContent = '🎤 Listening continuously...\n\nSpeak now. I will keep listening.\n\nClick red button when done.';
+      _boardContent =
+          '🎤 Listening continuously...\n\nSpeak now. I will keep listening.\n\nClick red button when done.';
       _currentSpokenText = '';
     });
 
@@ -353,7 +329,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
   void _startSpeechRecognition() async {
     if (!_isContinuousListening || _userStopped) return;
 
-    print('Starting speech recognition... (attempt ${_speechRestartCount + 1})');
+    print(
+      'Starting speech recognition... (attempt ${_speechRestartCount + 1})',
+    );
 
     try {
       if (_speech.isListening) {
@@ -373,7 +351,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
             setState(() {
               _recognizedText = text;
               // Update board with live partial
-              _boardContent = '🎤 Listening...\n\nYou: $_fullSessionText ${text.trim()}\n\n● Click red button when done ●';
+              _boardContent =
+                  '🎤 Listening...\n\nYou: $_fullSessionText ${text.trim()}\n\n● Click red button when done ●';
             });
 
             _scrollToBottom();
@@ -395,7 +374,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
             // clear recognizedText after final to show processing UI if needed
             setState(() {
               _recognizedText = '';
-              _boardContent = '🎤 Listening...\n\nYou: $_fullSessionText\n\n● Click red button when done ●';
+              _boardContent =
+                  '🎤 Listening...\n\nYou: $_fullSessionText\n\n● Click red button when done ●';
             });
           }
 
@@ -428,23 +408,24 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     // 🏆 FIX: Merge the current partial result before restarting the engine.
     // This ensures no spoken words are lost when the native engine stops unexpectedly.
     if (_recognizedText.trim().isNotEmpty) {
-        final lastSegment = _recognizedText.trim();
-        
-        if (_fullSessionText.isEmpty) {
-            _fullSessionText = lastSegment;
-        } else {
-            // Only append if it's not already the very end of the session text
-            if (!_fullSessionText.endsWith(lastSegment)) {
-                _fullSessionText = '$_fullSessionText ' + lastSegment;
-            }
-        }
-        
-        _recognizedText = ''; // Clear partial text for the new segment
+      final lastSegment = _recognizedText.trim();
 
-        // Update UI immediately after saving the last chunk
-        setState(() {
-            _boardContent = '🎤 Restarting...\n\nYou: $_fullSessionText\n\n● Click red button when done ●';
-        });
+      if (_fullSessionText.isEmpty) {
+        _fullSessionText = lastSegment;
+      } else {
+        // Only append if it's not already the very end of the session text
+        if (!_fullSessionText.endsWith(lastSegment)) {
+          _fullSessionText = '$_fullSessionText ' + lastSegment;
+        }
+      }
+
+      _recognizedText = ''; // Clear partial text for the new segment
+
+      // Update UI immediately after saving the last chunk
+      setState(() {
+        _boardContent =
+            '🎤 Restarting...\n\nYou: $_fullSessionText\n\n● Click red button when done ●';
+      });
     }
 
     _speechRestartCount++;
@@ -455,7 +436,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       return;
     }
 
-    print('Scheduling restart of speech recognition (attempt $_speechRestartCount)...');
+    print(
+      'Scheduling restart of speech recognition (attempt $_speechRestartCount)...',
+    );
 
     // Cancel any pending timers and schedule a short restart
     _restartTimer?.cancel();
@@ -485,14 +468,14 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
     try {
       // Final merge of any remaining recognized text (the fix already did this, but this is a final safeguard)
-      if (_recognizedText.trim().isNotEmpty) { 
+      if (_recognizedText.trim().isNotEmpty) {
         final lastSegment = _recognizedText.trim();
         if (_fullSessionText.isEmpty) {
           _fullSessionText = lastSegment;
         } else {
-           if (!_fullSessionText.endsWith(lastSegment)) {
+          if (!_fullSessionText.endsWith(lastSegment)) {
             _fullSessionText = '$_fullSessionText ' + lastSegment;
-           }
+          }
         }
         _recognizedText = '';
       }
@@ -555,7 +538,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
               'is_voice': true,
             }),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(AiResponseUtils.requestTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -785,8 +768,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
             _recognizedText.isNotEmpty
                 ? 'You said: "$_fullSessionText $_recognizedText"'
                 : _fullSessionText.isNotEmpty
-                    ? 'Session: "$_fullSessionText"'
-                    : 'Speak now...',
+                ? 'Session: "$_fullSessionText"'
+                : 'Speak now...',
             style: TextStyle(
               color: _recognizedText.isNotEmpty || _fullSessionText.isNotEmpty
                   ? Colors.white
@@ -974,7 +957,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
                 onTap: () {
                   if (_state == VoiceChatState.listening) {
                     _stopContinuousListening();
-                  } else if (_state == VoiceChatState.ready || _state == VoiceChatState.error) {
+                  } else if (_state == VoiceChatState.ready ||
+                      _state == VoiceChatState.error) {
                     _startContinuousListening();
                   } else if (_state == VoiceChatState.aiSpeaking) {
                     // interrupt AI speaking and start listening
@@ -998,7 +982,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
                     ],
                   ),
                   child: Icon(
-                    _state == VoiceChatState.listening ? Icons.stop_rounded : Icons.mic_rounded,
+                    _state == VoiceChatState.listening
+                        ? Icons.stop_rounded
+                        : Icons.mic_rounded,
                     color: Colors.white,
                     size: 36,
                   ),

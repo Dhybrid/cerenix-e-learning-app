@@ -23,14 +23,14 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
       "color": Color(0xFF6366F1),
     },
     {
-      "image": "assets/images/voice1.jpg",
+      "image": "assets/images/cerenixVoiceAssistance.png",
       "title": "Voice interaction",
       "desc":
           "Talk easily with our AI and get feedback with our cereva voice room",
       "color": Color(0xFFEC4899),
     },
     {
-      "image": "assets/images/progress2.jpg",
+      "image": "assets/images/cerenixProgress.png",
       "title": "Track Your Growth",
       "desc":
           "Analyze your progress, improve performance, and connect globally with other students.",
@@ -108,9 +108,19 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bool isSmallScreen = size.height < 700;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final backgroundColor = isDark ? const Color(0xFF08111F) : Colors.white;
+    final titleColor = isDark
+        ? const Color(0xFFF8FAFC)
+        : const Color(0xFF1F2937);
+    final bodyColor = isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600;
+    final inactiveDotColor = isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.grey.shade300;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: backgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -124,7 +134,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                   child: Text(
                     "Skip",
                     style: TextStyle(
-                      color: Colors.grey.shade600,
+                      color: bodyColor,
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                     ),
@@ -176,7 +186,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                             style: TextStyle(
                               fontSize: isSmallScreen ? 24 : 28,
                               fontWeight: FontWeight.w700,
-                              color: Color(0xFF1F2937),
+                              color: titleColor,
                               letterSpacing: -0.5,
                             ),
                           ),
@@ -188,7 +198,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: isSmallScreen ? 15 : 16,
-                              color: Colors.grey.shade600,
+                              color: bodyColor,
                               height: 1.6,
                               fontWeight: FontWeight.w400,
                             ),
@@ -216,7 +226,7 @@ class _CerenixOnboardingScreenState extends State<CerenixOnboardingScreen> {
                   decoration: BoxDecoration(
                     color: _currentIndex == index
                         ? _slides[index]["color"]
-                        : Colors.grey.shade300,
+                        : inactiveDotColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),

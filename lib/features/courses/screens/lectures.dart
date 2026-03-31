@@ -4,19 +4,17 @@ import 'dart:async';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/constants/endpoints.dart';
+import '../../../features/ai_board/screens/ai_board_screen.dart';
 import '../../../features/courses/models/course_models.dart';
-import '../../../features/past_questions/models/past_question_models.dart';
+import '../../../core/utils/latex_render_utils.dart';
 import '../screens/past_questions_screen.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:flutter/gestures.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:flutter_markdown_plus_latex/flutter_markdown_plus_latex.dart';
 import 'dart:math'; // ADD THIS IMPORT
 import 'package:flutter_html/flutter_html.dart';
 
@@ -46,8 +44,6 @@ class _LectureScreenState extends State<LectureScreen> {
   final ApiService _apiService = ApiService();
   final Connectivity _connectivity = Connectivity();
 
-  bool _showWebViewError = false;
-
   List<Topic> _topics = [];
   Topic? _currentTopic;
   bool _isVoiceIconExpanded = true;
@@ -57,13 +53,32 @@ class _LectureScreenState extends State<LectureScreen> {
   String _errorMessage = '';
   int _currentTopicIndex = 0;
 
-  // WebView Controller
-  WebViewController? _webViewController;
-  bool _isVideoLoading = false;
+  YoutubePlayerController? _youtubeController;
+  YoutubePlayerController? _listenedYoutubeController;
+  String? _activeVideoId;
+  bool _isInlineVideoVisible = false;
+  int? _inlineVideoErrorCode;
+  String? _inlineVideoErrorMessage;
 
   // Offline mode
   bool _isOfflineMode = false;
   bool _isCourseDownloaded = false;
+  final Map<String, String> _offlineDownloadedImageMap = {};
+
+  ThemeData get _theme => Theme.of(context);
+  ColorScheme get _scheme => _theme.colorScheme;
+  bool get _isDark => _theme.brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF333333);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF666666);
 
   @override
   void initState() {
@@ -78,8 +93,79 @@ class _LectureScreenState extends State<LectureScreen> {
   @override
   void dispose() {
     _collapseTimer?.cancel();
+    _detachVideoControllerListener();
+    _youtubeController?.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _detachVideoControllerListener() {
+    _listenedYoutubeController?.removeListener(_handleYoutubeControllerChanged);
+    _listenedYoutubeController = null;
+  }
+
+  void _attachVideoControllerListener(YoutubePlayerController controller) {
+    if (identical(_listenedYoutubeController, controller)) {
+      return;
+    }
+
+    _detachVideoControllerListener();
+    _listenedYoutubeController = controller;
+    controller.addListener(_handleYoutubeControllerChanged);
+  }
+
+  void _handleYoutubeControllerChanged() {
+    final controller = _listenedYoutubeController;
+    if (controller == null || !mounted) {
+      return;
+    }
+
+    final errorCode = controller.value.errorCode;
+    if (errorCode == 0) {
+      if (_inlineVideoErrorCode != null || _inlineVideoErrorMessage != null) {
+        setState(() {
+          _inlineVideoErrorCode = null;
+          _inlineVideoErrorMessage = null;
+        });
+      }
+      return;
+    }
+
+    if (_inlineVideoErrorCode == errorCode) {
+      return;
+    }
+
+    setState(() {
+      _inlineVideoErrorCode = errorCode;
+      _inlineVideoErrorMessage = _friendlyVideoErrorMessage(errorCode);
+      _isInlineVideoVisible = true;
+    });
+
+    if (_isEmbedRestrictedError(errorCode)) {
+      _detachVideoControllerListener();
+      _youtubeController?.dispose();
+      _youtubeController = null;
+    }
+  }
+
+  bool _isEmbedRestrictedError(int errorCode) =>
+      errorCode == 101 || errorCode == 150 || errorCode == 152;
+
+  String _friendlyVideoErrorMessage(int errorCode) {
+    switch (errorCode) {
+      case 101:
+      case 150:
+      case 152:
+        return 'This YouTube video cannot play inside the app because embedded playback is blocked. Open it in YouTube to continue watching.';
+      case 2:
+        return 'This video link looks invalid. Please try opening it directly in YouTube.';
+      case 5:
+        return 'This video format is not supported for in-app playback on this device. Try YouTube instead.';
+      case 100:
+        return 'This video is no longer available on YouTube.';
+      default:
+        return 'The video could not be played in the app. You can still open it in YouTube.';
+    }
   }
 
   Future<void> _checkConnectivityAndLoad() async {
@@ -88,8 +174,8 @@ class _LectureScreenState extends State<LectureScreen> {
       _isCourseDownloaded = await _isCourseDownloadedForOffline();
 
       // Check connectivity
-      final connectivityResult = await _connectivity.checkConnectivity();
-      _isOfflineMode = connectivityResult == ConnectivityResult.none;
+      final connectivityResults = await _connectivity.checkConnectivity();
+      _isOfflineMode = connectivityResults.contains(ConnectivityResult.none);
 
       print(
         '📱 Connectivity: $_isOfflineMode, Course Downloaded: $_isCourseDownloaded',
@@ -146,13 +232,14 @@ class _LectureScreenState extends State<LectureScreen> {
       _isLoading = true;
       _errorMessage = '';
     });
+    _offlineDownloadedImageMap.clear();
 
     try {
       print('📚 Loading topics for outline ID: $selectedOutlineId');
 
       List<Topic> topics = [];
 
-      if (_isOfflineMode || _isCourseDownloaded) {
+      if (_isOfflineMode) {
         // Try to load from offline storage
         print('📂 Loading topics from offline storage...');
         topics = await _getOfflineTopics(
@@ -176,6 +263,12 @@ class _LectureScreenState extends State<LectureScreen> {
         // Online mode - load from API
         print('🌐 Loading topics from API...');
         topics = await _apiService.getTopics(outlineId: selectedOutlineId);
+        if (_isCourseDownloaded && topics.isNotEmpty) {
+          topics = await _applyDownloadedMediaToTopics(
+            _getCourseId(widget.course),
+            topics,
+          );
+        }
       }
 
       if (topics.isNotEmpty) {
@@ -191,7 +284,7 @@ class _LectureScreenState extends State<LectureScreen> {
         // Initialize video for first topic if it has video
         if (_currentTopic?.videoUrl != null &&
             _currentTopic!.videoUrl!.isNotEmpty) {
-          _initializeVideoPlayer(_currentTopic!.videoUrl!);
+          _prepareInlineVideo(_currentTopic!.videoUrl!);
         }
       } else {
         setState(() {
@@ -237,6 +330,8 @@ class _LectureScreenState extends State<LectureScreen> {
       if (data['topics'] != null && data['topics'] is List) {
         final topicsJson = data['topics'] as List;
         print('📚 Found ${topicsJson.length} total topics in offline storage');
+        final downloadedImages = _extractDownloadedImages(data);
+        _cacheOfflineDownloadedImageMap(downloadedImages);
 
         final allTopics = <Topic>[];
 
@@ -246,10 +341,13 @@ class _LectureScreenState extends State<LectureScreen> {
             final topicData = topicsJson[i];
 
             if (topicData is Map<String, dynamic>) {
-              final topic = Topic.fromJson(topicData);
+              final normalizedTopic = Map<String, dynamic>.from(topicData);
+              _applyOfflineMediaToTopicMap(normalizedTopic, downloadedImages);
+              final topic = Topic.fromJson(normalizedTopic);
               allTopics.add(topic);
             } else if (topicData is Map) {
               final json = Map<String, dynamic>.from(topicData);
+              _applyOfflineMediaToTopicMap(json, downloadedImages);
               final topic = Topic.fromJson(json);
               allTopics.add(topic);
             }
@@ -284,6 +382,187 @@ class _LectureScreenState extends State<LectureScreen> {
   }
   // ########################
 
+  Map<String, String> _flattenDownloadedImages(dynamic downloadedImages) {
+    final flattened = <String, String>{};
+
+    if (downloadedImages is! Map) {
+      return flattened;
+    }
+
+    downloadedImages.forEach((key, value) {
+      if (key is String && value is String && value.isNotEmpty) {
+        flattened[key] = value;
+      } else if (key is String && value is Map) {
+        final path = value['path']?.toString();
+        final originalUrl = value['original_url']?.toString();
+
+        if (path != null && path.isNotEmpty) {
+          flattened[key] = path;
+          if (originalUrl != null && originalUrl.isNotEmpty) {
+            flattened[originalUrl] = path;
+            flattened[_normalizeMediaUrl(originalUrl)] = path;
+          }
+        }
+      }
+    });
+
+    return flattened;
+  }
+
+  void _cacheOfflineDownloadedImageMap(dynamic downloadedImages) {
+    _offlineDownloadedImageMap.clear();
+
+    if (downloadedImages is! Map) {
+      return;
+    }
+
+    downloadedImages.forEach((key, value) {
+      if (value is Map) {
+        final originalUrl = value['original_url']?.toString();
+        final localPath = value['path']?.toString();
+
+        if (localPath == null || localPath.isEmpty) {
+          return;
+        }
+
+        if (originalUrl != null && originalUrl.isNotEmpty) {
+          _offlineDownloadedImageMap[originalUrl] = localPath;
+          _offlineDownloadedImageMap[_normalizeMediaUrl(originalUrl)] =
+              localPath;
+        }
+      }
+    });
+  }
+
+  dynamic _extractDownloadedImages(Map<String, dynamic> courseData) {
+    return courseData['downloaded_images'] ?? courseData['images'];
+  }
+
+  String _normalizeMediaUrl(String url) {
+    if (url.isEmpty) {
+      return url;
+    }
+
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url.replaceAll(RegExp(r'(?<!:)/{2,}'), '/');
+    }
+
+    final clean = url.replaceFirst('file://', '');
+    if (clean.startsWith('/')) {
+      return '${ApiEndpoints.baseUrl}$clean'.replaceAll(
+        RegExp(r'(?<!:)/{2,}'),
+        '/',
+      );
+    }
+
+    return '${ApiEndpoints.baseUrl}/$clean'.replaceAll(
+      RegExp(r'(?<!:)/{2,}'),
+      '/',
+    );
+  }
+
+  String? _findOfflineImagePath(
+    dynamic downloadedImages, {
+    String? imageKey,
+    String? imageUrl,
+  }) {
+    final flattened = _flattenDownloadedImages(downloadedImages);
+
+    if (imageKey != null && flattened.containsKey(imageKey)) {
+      final path = flattened[imageKey];
+      if (path != null && File(path).existsSync()) {
+        return path;
+      }
+    }
+
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      final normalized = _normalizeMediaUrl(imageUrl);
+      for (final candidate in [imageUrl, normalized]) {
+        final path = flattened[candidate];
+        if (path != null && File(path).existsSync()) {
+          return path;
+        }
+      }
+
+      final fileName = imageUrl.split('/').last;
+      for (final path in flattened.values) {
+        if (path.endsWith(fileName) && File(path).existsSync()) {
+          return path;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  String _replaceOfflineImageReferencesInHtml(
+    String content,
+    dynamic downloadedImages,
+  ) {
+    if (content.isEmpty) {
+      return content;
+    }
+
+    return content.replaceAllMapped(
+      RegExp(
+        '(<img[^>]*src\\s*=\\s*)([\'"])([^\'"]+)([\'"])',
+        caseSensitive: false,
+      ),
+      (match) {
+        final originalUrl = match.group(3) ?? '';
+        final localPath = _findOfflineImagePath(
+          downloadedImages,
+          imageUrl: originalUrl,
+        );
+        if (localPath == null) {
+          return match.group(0) ?? '';
+        }
+        return '${match.group(1)}${match.group(2)}file://$localPath${match.group(4)}';
+      },
+    );
+  }
+
+  void _applyOfflineMediaToTopicMap(
+    Map<String, dynamic> topicData,
+    dynamic downloadedImages,
+  ) {
+    final topicId = topicData['id']?.toString();
+    final localTopicImage = _findOfflineImagePath(
+      downloadedImages,
+      imageKey: topicId != null ? 'topic_$topicId' : null,
+      imageUrl:
+          topicData['display_image_url']?.toString() ??
+          topicData['image']?.toString(),
+    );
+
+    if (localTopicImage != null) {
+      topicData['image'] = localTopicImage;
+      topicData['display_image_url'] = localTopicImage;
+    }
+
+    final content = topicData['content']?.toString();
+    if (content != null && content.isNotEmpty) {
+      topicData['content'] = _replaceOfflineImageReferencesInHtml(
+        content,
+        downloadedImages,
+      );
+    }
+
+    final questionText = topicData['completion_question_text']?.toString();
+    if (questionText != null && questionText.isNotEmpty) {
+      topicData['completion_question_text'] =
+          _replaceOfflineImageReferencesInHtml(questionText, downloadedImages);
+    }
+
+    final solutionText = topicData['solution_text']?.toString();
+    if (solutionText != null && solutionText.isNotEmpty) {
+      topicData['solution_text'] = _replaceOfflineImageReferencesInHtml(
+        solutionText,
+        downloadedImages,
+      );
+    }
+  }
+
   // Get image URL - handles both online and offline
   String? _getImageUrl(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty) return null;
@@ -295,36 +574,28 @@ class _LectureScreenState extends State<LectureScreen> {
         final offlineBox = Hive.box('offline_courses');
         final courseData = offlineBox.get('course_$courseId');
 
-        if (courseData != null && courseData['downloaded_images'] != null) {
-          final downloadedImages = Map<String, String>.from(
-            courseData['downloaded_images'],
+        if (courseData != null) {
+          final downloadedImages = _extractDownloadedImages(
+            Map<String, dynamic>.from(courseData),
           );
-
-          // Try to find the image by topic ID
-          if (_currentTopic != null &&
-              downloadedImages.containsKey(_currentTopic!.id)) {
-            final localPath = downloadedImages[_currentTopic!.id];
-            if (localPath != null && File(localPath).existsSync()) {
-              return localPath;
-            }
+          final localTopicImage = _findOfflineImagePath(
+            downloadedImages,
+            imageKey: _currentTopic != null
+                ? 'topic_${_currentTopic!.id}'
+                : null,
+            imageUrl: imagePath,
+          );
+          if (localTopicImage != null) {
+            return localTopicImage;
           }
 
-          // Try to find course image
-          if (downloadedImages.containsKey('course_image')) {
-            final localPath = downloadedImages['course_image'];
-            if (localPath != null && File(localPath).existsSync()) {
-              return localPath;
-            }
-          }
-
-          // Try to find image by path
-          for (final entry in downloadedImages.entries) {
-            if (entry.key.contains('topic') &&
-                entry.value.contains(imagePath.split('/').last)) {
-              if (File(entry.value).existsSync()) {
-                return entry.value;
-              }
-            }
+          final localCourseImage = _findOfflineImagePath(
+            downloadedImages,
+            imageKey: 'course_image',
+            imageUrl: imagePath,
+          );
+          if (localCourseImage != null) {
+            return localCourseImage;
           }
         }
       } catch (e) {
@@ -342,99 +613,33 @@ class _LectureScreenState extends State<LectureScreen> {
     return '$baseUrl$path';
   }
 
-  void _initializeVideoPlayer(String videoUrl) {
-    print('🎬 Initializing video player with URL: $videoUrl');
-
-    setState(() {
-      _isVideoLoading = true;
-      _showWebViewError = false;
-    });
-
+  Future<List<Topic>> _applyDownloadedMediaToTopics(
+    String courseId,
+    List<Topic> topics,
+  ) async {
     try {
-      final videoId = _extractYouTubeVideoId(videoUrl);
-      if (videoId == null) {
-        setState(() {
-          _isVideoLoading = false;
-        });
-        return;
+      final offlineBox = Hive.box('offline_courses');
+      final courseData = offlineBox.get('course_$courseId');
+      if (courseData == null) {
+        return topics;
       }
 
-      // Create WebView controller with error detection
-      _webViewController = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageStarted: (url) {
-              print('🌐 Page started loading: $url');
-            },
-            onPageFinished: (url) {
-              print('✅ Page finished loading: $url');
-              // Check for YouTube error pages
-              if (url.contains('youtube.com/embed') &&
-                  (url.contains('error') || url.contains('restricted'))) {
-                print('⚠️ YouTube embed restriction detected');
-                if (mounted) {
-                  setState(() {
-                    _showWebViewError = true;
-                    _isVideoLoading = false;
-                  });
-                }
-              } else if (mounted) {
-                setState(() {
-                  _isVideoLoading = false;
-                });
-              }
-            },
-            onWebResourceError: (error) {
-              print(
-                '❌ Web resource error: ${error.errorCode} - ${error.description}',
-              );
-              // YouTube embed error codes
-              if (error.errorCode == 153 || error.errorCode == 150) {
-                print('⚠️ YouTube embed restriction error');
-                if (mounted) {
-                  setState(() {
-                    _showWebViewError = true;
-                    _isVideoLoading = false;
-                  });
-                }
-              }
-            },
-          ),
-        )
-        ..loadRequest(Uri.parse('https://www.youtube.com/embed/$videoId'));
-
-      // Set timeout
-      Future.delayed(const Duration(seconds: 8), () {
-        if (mounted && _isVideoLoading) {
-          print('⚠️ Loading timeout');
-          setState(() {
-            _isVideoLoading = false;
-            _showWebViewError = true;
-          });
-        }
-      });
-    } catch (e) {
-      print('❌ Error initializing video player: $e');
-      if (mounted) {
-        setState(() {
-          _isVideoLoading = false;
-          _showWebViewError = true;
-        });
+      final downloadedImages = _extractDownloadedImages(
+        Map<String, dynamic>.from(courseData),
+      );
+      if (downloadedImages == null) {
+        return topics;
       }
-    }
-  }
+      _cacheOfflineDownloadedImageMap(downloadedImages);
 
-  String? _getYouTubeEmbedUrl(String url) {
-    try {
-      final videoId = _extractYouTubeVideoId(url);
-      if (videoId == null) return null;
-
-      // Create embed URL
-      return 'https://www.youtube.com/embed/$videoId?autoplay=0&modestbranding=1&rel=0&showinfo=0&controls=1';
+      return topics.map((topic) {
+        final topicMap = topic.toJson();
+        _applyOfflineMediaToTopicMap(topicMap, downloadedImages);
+        return Topic.fromJson(topicMap);
+      }).toList();
     } catch (e) {
-      print('Error creating embed URL: $e');
-      return null;
+      print('⚠️ Error applying downloaded media to online topics: $e');
+      return topics;
     }
   }
 
@@ -489,7 +694,9 @@ class _LectureScreenState extends State<LectureScreen> {
       _currentTopic = _topics[index];
       selectedTopicId = _topics[index].id;
       _scrollController.jumpTo(0);
-      _isVideoLoading = false;
+      _isInlineVideoVisible = false;
+      _inlineVideoErrorCode = null;
+      _inlineVideoErrorMessage = null;
     });
 
     // Initialize video if exists
@@ -497,11 +704,14 @@ class _LectureScreenState extends State<LectureScreen> {
         _currentTopic!.videoUrl!.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted && _currentTopic?.videoUrl != null) {
-          _initializeVideoPlayer(_currentTopic!.videoUrl!);
+          _prepareInlineVideo(_currentTopic!.videoUrl!);
         }
       });
     } else {
-      _webViewController = null;
+      _detachVideoControllerListener();
+      _youtubeController?.dispose();
+      _youtubeController = null;
+      _activeVideoId = null;
     }
   }
 
@@ -519,17 +729,78 @@ class _LectureScreenState extends State<LectureScreen> {
     }
   }
 
-  void _initializeYouTubePlayer(String videoUrl) {
-    print('🎬 Preparing video: $videoUrl');
-    // No need to initialize anything - we'll show thumbnail immediately
+  void _prepareInlineVideo(String videoUrl) {
+    final videoId = _extractYouTubeVideoId(videoUrl);
+    if (videoId == null) {
+      _detachVideoControllerListener();
+      _youtubeController?.dispose();
+      _youtubeController = null;
+      _activeVideoId = null;
+      _inlineVideoErrorCode = null;
+      _inlineVideoErrorMessage = null;
+      return;
+    }
+
+    if (_activeVideoId == videoId && _youtubeController != null) {
+      _attachVideoControllerListener(_youtubeController!);
+      return;
+    }
+
+    _detachVideoControllerListener();
+    _youtubeController?.dispose();
+    _youtubeController = YoutubePlayerController(
+      initialVideoId: videoId,
+      flags: const YoutubePlayerFlags(
+        autoPlay: false,
+        mute: false,
+        enableCaption: true,
+      ),
+    );
+    _attachVideoControllerListener(_youtubeController!);
+    _activeVideoId = videoId;
+    _inlineVideoErrorCode = null;
+    _inlineVideoErrorMessage = null;
+  }
+
+  Future<void> _startInlineVideoPlayback() async {
+    final videoUrl = _currentTopic?.videoUrl;
+    if (videoUrl == null || videoUrl.isEmpty) {
+      return;
+    }
+
+    _prepareInlineVideo(videoUrl);
+    if (_youtubeController == null) {
+      return;
+    }
+
     setState(() {
-      _isVideoLoading = false;
+      _isInlineVideoVisible = true;
     });
   }
 
+  Future<void> _openCurrentTopicVideoExternally() async {
+    final videoUrl = _currentTopic?.videoUrl;
+    if (videoUrl == null || videoUrl.isEmpty) {
+      return;
+    }
+
+    final uri = Uri.tryParse(videoUrl);
+    if (uri == null) {
+      return;
+    }
+
+    final openedInNativeApp = await launchUrl(
+      uri,
+      mode: LaunchMode.externalNonBrowserApplication,
+    );
+
+    if (!openedInNativeApp) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Future<void> _showCompletionQuestion() async {
-    if (_currentTopic == null ||
-        _currentTopic!.completionQuestionText == null) {
+    if (_currentTopic == null || !_currentTopic!.hasCompletionQuestion) {
       _navigateToNextTopic();
       return;
     }
@@ -551,53 +822,43 @@ class _LectureScreenState extends State<LectureScreen> {
         child: CompletionQuestionDialog(
           topic: _currentTopic!,
           onAnswerSubmitted: (bool isCorrect) async {
-            if (isCorrect) {
-              try {
-                print(
-                  '✅ Correct answer! Topic will be marked as completed by Django...',
-                );
+            if (!isCorrect) {
+              return;
+            }
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Correct! Topic marked as completed.'),
-                    backgroundColor: Colors.green,
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
+            try {
+              print(
+                '✅ Correct answer! Topic will be marked as completed by Django...',
+              );
 
-                await _refreshTopics();
-                await _updateCourseProgressInCache();
-
-                if (widget.onProgressUpdated != null) {
-                  widget.onProgressUpdated!(true);
-                }
-
-                if (mounted) {
-                  Navigator.pop(context);
-                  await Future.delayed(const Duration(milliseconds: 300));
-                  _navigateToNextTopic();
-                }
-              } catch (e) {
-                print('❌ Error: $e');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: ${e.toString()}'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            } else {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('Incorrect answer. Try again!'),
-                  backgroundColor: Colors.red,
+                  content: const Text('Correct! Topic marked as completed.'),
+                  backgroundColor: Colors.green,
                   duration: const Duration(seconds: 2),
                 ),
               );
 
+              await _refreshTopics();
+              await _updateCourseProgressInCache();
+
+              if (widget.onProgressUpdated != null) {
+                widget.onProgressUpdated!(true);
+              }
+
               if (mounted) {
                 Navigator.pop(context);
+                await Future.delayed(const Duration(milliseconds: 300));
+                _navigateToNextTopic();
               }
+            } catch (e) {
+              print('❌ Error: $e');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
             }
           },
           onSkip: () {
@@ -791,30 +1052,6 @@ class _LectureScreenState extends State<LectureScreen> {
     }
   }
 
-  Future<void> _playVideoInBrowser() async {
-    if (_currentTopic?.videoUrl == null || _currentTopic!.videoUrl!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('No video available for this topic'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final Uri url = Uri.parse(_currentTopic!.videoUrl!);
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Could not open video'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   void _showCompletionDialog() {
     showDialog(
       context: context,
@@ -866,6 +1103,28 @@ class _LectureScreenState extends State<LectureScreen> {
       _isVoiceIconExpanded = true;
     });
     _startCollapseTimer();
+  }
+
+  Future<void> _openTopicBoard() async {
+    if (_currentTopic == null) {
+      return;
+    }
+
+    final topicTitle = _currentTopic!.title.trim();
+    final courseCode = _getCourseCode(widget.course);
+    final prompt = [
+      'Explain the lecture topic "$topicTitle"',
+      if (courseCode.isNotEmpty) 'for $courseCode',
+      'in a clear teaching-board style.',
+      'Start with a simple overview, then cover the main ideas, give examples where useful, and end with a short summary.',
+    ].join(' ');
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            AIBoardScreen(initialTopic: topicTitle, initialPrompt: prompt),
+      ),
+    );
   }
 
   // Show dialog for offline completion
@@ -1050,7 +1309,7 @@ class _LectureScreenState extends State<LectureScreen> {
     final courseColor = _getCourseColor(widget.course);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _pageBackground,
       body: Stack(
         children: [
           Column(
@@ -1064,7 +1323,7 @@ class _LectureScreenState extends State<LectureScreen> {
                     horizontal: 16,
                     vertical: 8,
                   ),
-                  color: Colors.green.withOpacity(0.1),
+                  color: Colors.green.withValues(alpha: _isDark ? 0.16 : 0.10),
                   child: Row(
                     children: [
                       Icon(
@@ -1122,7 +1381,8 @@ class _LectureScreenState extends State<LectureScreen> {
               bottom: 80,
               right: 20,
               child: GestureDetector(
-                onTap: _expandVoiceIcon,
+                onTap: _openTopicBoard,
+                onLongPress: _expandVoiceIcon,
                 child: _buildFloatingVoiceIcon(courseColor),
               ),
             ),
@@ -1210,7 +1470,7 @@ class _LectureScreenState extends State<LectureScreen> {
     final progressWidth = availableWidth * (progress / 100);
 
     return Container(
-      color: Colors.white,
+      color: _surfaceColor,
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
@@ -1224,7 +1484,7 @@ class _LectureScreenState extends State<LectureScreen> {
                       'Outline Progress',
                       style: TextStyle(
                         fontSize: 14,
-                        color: const Color(0xFF666666),
+                        color: _bodyColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1234,7 +1494,7 @@ class _LectureScreenState extends State<LectureScreen> {
                         Container(
                           height: 6,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF0F0F0),
+                            color: _secondarySurfaceColor,
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
@@ -1271,9 +1531,9 @@ class _LectureScreenState extends State<LectureScreen> {
                   ),
                   Text(
                     '$completedCount/$totalTopics',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF999999),
+                      color: _bodyColor.withValues(alpha: 0.8),
                     ),
                   ),
                 ],
@@ -1312,7 +1572,7 @@ class _LectureScreenState extends State<LectureScreen> {
 
   Widget _buildTopicSelector(Color courseColor) {
     return Container(
-      color: Colors.white,
+      color: _surfaceColor,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1325,13 +1585,13 @@ class _LectureScreenState extends State<LectureScreen> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    color: _titleColor,
                   ),
                 ),
               ),
               Text(
                 '${_currentTopicIndex + 1}/${_topics.length}',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF999999)),
+                style: TextStyle(fontSize: 14, color: _bodyColor),
               ),
             ],
           ),
@@ -1340,9 +1600,9 @@ class _LectureScreenState extends State<LectureScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _secondarySurfaceColor,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE0E0E0)),
+              border: Border.all(color: _borderColor),
             ),
             child: DropdownButton<Topic>(
               value: _currentTopic,
@@ -1380,9 +1640,9 @@ class _LectureScreenState extends State<LectureScreen> {
                           Flexible(
                             child: Text(
                               '${topic.order}. ${topic.title}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14,
-                                color: Color(0xFF333333),
+                                color: _titleColor,
                                 fontWeight: FontWeight.w600,
                               ),
                               maxLines: 1,
@@ -1396,7 +1656,7 @@ class _LectureScreenState extends State<LectureScreen> {
                 }).toList();
               },
               itemHeight: 50,
-              dropdownColor: Colors.white,
+              dropdownColor: _surfaceColor,
               borderRadius: BorderRadius.circular(8),
               elevation: 4,
               menuMaxHeight: 400,
@@ -1422,9 +1682,7 @@ class _LectureScreenState extends State<LectureScreen> {
                             '${topic.order}. ${topic.title}',
                             style: TextStyle(
                               fontSize: 14,
-                              color: isSelected
-                                  ? courseColor
-                                  : const Color(0xFF333333),
+                              color: isSelected ? courseColor : _titleColor,
                               fontWeight: isSelected
                                   ? FontWeight.w600
                                   : FontWeight.normal,
@@ -1447,7 +1705,7 @@ class _LectureScreenState extends State<LectureScreen> {
 
   Widget _buildContent(Color courseColor) {
     final topic = _currentTopic!;
-    final imageUrl = _getImageUrl(topic.image);
+    final imageUrl = _getImageUrl(topic.displayImageUrl ?? topic.image);
 
     return Container(
       margin: const EdgeInsets.all(20),
@@ -1471,7 +1729,7 @@ class _LectureScreenState extends State<LectureScreen> {
   Widget _buildVideoSection(Topic topic, Color courseColor) {
     return Container(
       width: double.infinity,
-      height: 220,
+      height: 240,
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Colors.black,
@@ -1496,36 +1754,194 @@ class _LectureScreenState extends State<LectureScreen> {
         ? _extractYouTubeVideoId(_currentTopic!.videoUrl!)
         : null;
 
+    if (_isInlineVideoVisible && _inlineVideoErrorCode != null) {
+      return _buildVideoErrorState(videoId);
+    }
+
+    if (_isInlineVideoVisible && _youtubeController != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          YoutubePlayer(
+            controller: _youtubeController!,
+            showVideoProgressIndicator: true,
+            progressIndicatorColor: const Color(0xFFEF4444),
+            progressColors: const ProgressBarColors(
+              playedColor: Color(0xFFEF4444),
+              handleColor: Color(0xFFF87171),
+            ),
+          ),
+          Positioned(
+            top: 14,
+            right: 14,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Text(
+                'Playing in app',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 14,
+            bottom: 14,
+            child: FilledButton.icon(
+              onPressed: _openCurrentTopicVideoExternally,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.black.withValues(alpha: 0.58),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+              label: const Text('Open in YouTube'),
+            ),
+          ),
+        ],
+      );
+    }
+
     return _buildVideoThumbnail(videoId);
+  }
+
+  Widget _buildVideoErrorState(String? videoId) {
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (videoId != null)
+            Opacity(
+              opacity: 0.24,
+              child: Image.network(
+                'https://img.youtube.com/vi/$videoId/maxresdefault.jpg',
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          Container(color: Colors.black.withValues(alpha: 0.72)),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact =
+                      constraints.maxHeight < 220 || constraints.maxWidth < 260;
+
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Container(
+                      padding: EdgeInsets.all(compact ? 14 : 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!compact) ...[
+                              const Icon(
+                                Icons.ondemand_video_rounded,
+                                color: Colors.white,
+                                size: 38,
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            Text(
+                              compact
+                                  ? 'Video blocked in app'
+                                  : 'Video cannot play in-app',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: compact ? 16 : 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _inlineVideoErrorMessage ??
+                                  'Open this video in YouTube to continue watching.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: const Color(0xFFE2E8F0),
+                                fontSize: compact ? 12 : 14,
+                                height: 1.45,
+                              ),
+                            ),
+                            if (!compact) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'YouTube error code: ${_inlineVideoErrorCode ?? '-'}',
+                                style: const TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: _openCurrentTopicVideoExternally,
+                                  icon: const Icon(Icons.open_in_new_rounded),
+                                  label: const Text('Open in YouTube'),
+                                ),
+                                if (!compact)
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      setState(() {
+                                        _isInlineVideoVisible = false;
+                                      });
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: BorderSide(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.28,
+                                        ),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.arrow_back_rounded),
+                                    label: const Text('Back to preview'),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildVideoThumbnail(String? videoId) {
     return GestureDetector(
-      onTap: () async {
-        // Show loading indicator while preparing to open
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const CircularProgressIndicator(color: Colors.white),
-                const SizedBox(width: 15),
-                const Text('Opening YouTube...'),
-              ],
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-
-        // Try to open in YouTube app first
-        final youtubeAppUri = Uri.parse('vnd.youtube:$videoId');
-
-        if (await canLaunchUrl(youtubeAppUri)) {
-          await launchUrl(youtubeAppUri, mode: LaunchMode.externalApplication);
-        } else {
-          // Fallback to browser
-          await _playVideoInBrowser();
-        }
-      },
+      onTap: _startInlineVideoPlayback,
       child: Container(
         color: Colors.black,
         child: Stack(
@@ -1699,7 +2115,7 @@ class _LectureScreenState extends State<LectureScreen> {
                       ),
                       const SizedBox(width: 5),
                       const Text(
-                        'Tap to watch in YouTube app',
+                        'Tap to play inside this lecture',
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 14,
@@ -1907,11 +2323,12 @@ class _LectureScreenState extends State<LectureScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: _isDark ? 0.20 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1924,10 +2341,10 @@ class _LectureScreenState extends State<LectureScreen> {
           children: [
             Text(
               topic.title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF333333),
+                color: _titleColor,
                 height: 1.3,
               ),
             ),
@@ -1936,15 +2353,15 @@ class _LectureScreenState extends State<LectureScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8F9FA),
+                  color: _secondarySurfaceColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE0E0E0)),
+                  border: Border.all(color: _borderColor),
                 ),
                 child: Text(
                   topic.description!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
-                    color: Color(0xFF666666),
+                    color: _bodyColor,
                     fontStyle: FontStyle.italic,
                     height: 1.5,
                   ),
@@ -1957,25 +2374,24 @@ class _LectureScreenState extends State<LectureScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8F9FA),
+                color: _secondarySurfaceColor,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _borderColor),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  if (topic.durationMinutes != null)
-                    _buildStatItem(
-                      Icons.schedule_rounded,
-                      '${topic.durationMinutes} min',
-                      'Duration',
-                    ),
+                  _buildStatItem(
+                    Icons.schedule_rounded,
+                    '${topic.durationMinutes} min',
+                    'Duration',
+                  ),
                   _buildStatItem(
                     Icons.book_rounded,
                     'Topic ${topic.order}',
                     'Position',
                   ),
-                  if (topic.completionQuestionText != null &&
-                      topic.completionQuestionText!.isNotEmpty)
+                  if (topic.hasCompletionQuestion)
                     _buildStatItem(Icons.quiz_rounded, 'Quiz', 'Assessment'),
                 ],
               ),
@@ -1993,16 +2409,16 @@ class _LectureScreenState extends State<LectureScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8F9FA),
+                  color: _secondarySurfaceColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE0E0E0)),
+                  border: Border.all(color: _borderColor),
                 ),
-                child: const Center(
+                child: Center(
                   child: Text(
                     'No detailed content available for this topic.',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Color(0xFF999999),
+                      color: _bodyColor,
                       fontStyle: FontStyle.italic,
                     ),
                   ),
@@ -2033,7 +2449,9 @@ class _LectureScreenState extends State<LectureScreen> {
 
   Widget _buildFormattedContent(String content) {
     // Convert CKEditor HTML to clean markdown
-    final cleanContent = _convertCkEditorToMarkdown(content);
+    final cleanContent = _convertCkEditorToMarkdown(
+      LatexRenderUtils.sanitizeStoredMathTags(content),
+    );
 
     return Container(
       width: double.infinity,
@@ -2429,7 +2847,7 @@ class _LectureScreenState extends State<LectureScreen> {
   String _convertCkEditorToMarkdown(String htmlContent) {
     if (htmlContent.isEmpty) return '';
 
-    String result = htmlContent;
+    String result = LatexRenderUtils.restoreCustomTexTagsToLatex(htmlContent);
 
     // ─── STEP 1: PROTECT MATH FIRST (before anything strips tags) ───────────────
     final mathPlaceholders = <String, String>{};
@@ -2628,34 +3046,29 @@ class _LectureScreenState extends State<LectureScreen> {
       RegExp(r'<img[^>]*>', caseSensitive: false),
       (match) {
         final imgTag = match.group(0)!;
-        final src = RegExp(r'src="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
-        final alt = RegExp(r'alt="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
+        final src =
+            RegExp(
+              r'''src\s*=\s*(['"])(.*?)\1''',
+              caseSensitive: false,
+            ).firstMatch(imgTag)?.group(2) ??
+            '';
+        final alt =
+            RegExp(
+              r'''alt\s*=\s*(['"])(.*?)\1''',
+              caseSensitive: false,
+            ).firstMatch(imgTag)?.group(2) ??
+            '';
         final title =
-            RegExp(r'title="([^"]*)"').firstMatch(imgTag)?.group(1) ?? '';
+            RegExp(
+              r'''title\s*=\s*(['"])(.*?)\1''',
+              caseSensitive: false,
+            ).firstMatch(imgTag)?.group(2) ??
+            '';
 
         if (src.isEmpty) return '';
 
-        String imageUrl = src;
-        if (!src.startsWith('http://') && !src.startsWith('https://')) {
-          final baseUrl = ApiEndpoints.baseUrl;
-          if (src.startsWith('/')) {
-            imageUrl = '$baseUrl$src';
-          } else if (src.startsWith('media/') || src.startsWith('/media/')) {
-            imageUrl = src.startsWith('media/')
-                ? '$baseUrl/$src'
-                : '$baseUrl$src';
-          } else if (src.startsWith('uploads/')) {
-            imageUrl = '$baseUrl/media/$src';
-          } else {
-            imageUrl = '$baseUrl/media/$src';
-          }
-          imageUrl = imageUrl
-              .replaceAll('//media/', '/media/')
-              .replaceAll(':/', '://');
-        }
-
         final displayAlt = alt.isNotEmpty ? alt : title;
-        return '\n![$displayAlt]($imageUrl)\n';
+        return '\n![$displayAlt](${_resolveLectureImageUrl(src)})\n';
       },
     );
 
@@ -3427,23 +3840,30 @@ class _LectureScreenState extends State<LectureScreen> {
   }
 
   Widget _buildImageErrorPlaceholder(String? altText) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? const Color(0xFF162235) : Colors.grey.shade100;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.grey.shade300;
+    final textColor = isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600;
+
     return Container(
       height: 200,
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
+          Icon(Icons.broken_image_rounded, size: 48, color: textColor),
           const SizedBox(height: 8),
           Text(
             altText?.isNotEmpty == true
                 ? 'Image: $altText'
                 : 'Image not available',
-            style: const TextStyle(color: Colors.grey, fontSize: 14),
+            style: TextStyle(color: textColor, fontSize: 14),
             textAlign: TextAlign.center,
           ),
         ],
@@ -3497,10 +3917,13 @@ class _LectureScreenState extends State<LectureScreen> {
                 topRight: Radius.circular(8),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.code_rounded,
@@ -3519,7 +3942,10 @@ class _LectureScreenState extends State<LectureScreen> {
                     ),
                   ],
                 ),
-                Row(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     // Line count
                     Container(
@@ -3562,6 +3988,7 @@ class _LectureScreenState extends State<LectureScreen> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
                               Icons.content_copy,
@@ -3946,9 +4373,12 @@ class _LectureScreenState extends State<LectureScreen> {
       margin: const EdgeInsets.symmetric(vertical: 20),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: _scheme.primary.withValues(alpha: _isDark ? 0.14 : 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade200, width: 1),
+        border: Border.all(
+          color: _scheme.primary.withValues(alpha: _isDark ? 0.24 : 0.18),
+          width: 1,
+        ),
       ),
       child: Center(
         child: _buildMathWidget(mathContent.trim(), isInline: false),
@@ -4070,11 +4500,7 @@ class _LectureScreenState extends State<LectureScreen> {
       child: SelectableText.rich(
         TextSpan(
           children: spans,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Color(0xFF666666),
-            height: 1.6,
-          ),
+          style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
         ),
       ),
     );
@@ -4102,11 +4528,7 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: text.substring(lastIndex, match.start),
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF666666),
-              height: 1.6,
-            ),
+            style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
           ),
         );
       }
@@ -4116,11 +4538,11 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: match.group(1),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               fontStyle: FontStyle.italic,
-              color: Color(0xFF1A1A1A),
+              color: _titleColor,
               height: 1.6,
             ),
           ),
@@ -4130,10 +4552,10 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: match.group(2),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF1A1A1A),
+              color: _titleColor,
               height: 1.6,
             ),
           ),
@@ -4143,10 +4565,10 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: match.group(3),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontStyle: FontStyle.italic,
-              color: Color(0xFF333333),
+              color: _titleColor,
               height: 1.6,
             ),
           ),
@@ -4156,10 +4578,10 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: match.group(4),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               decoration: TextDecoration.lineThrough,
-              color: Color(0xFF666666),
+              color: _bodyColor,
               height: 1.6,
             ),
           ),
@@ -4174,11 +4596,7 @@ class _LectureScreenState extends State<LectureScreen> {
       spans.add(
         TextSpan(
           text: text.substring(lastIndex),
-          style: const TextStyle(
-            fontSize: 16,
-            color: Color(0xFF666666),
-            height: 1.6,
-          ),
+          style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
         ),
       );
     }
@@ -4187,14 +4605,7 @@ class _LectureScreenState extends State<LectureScreen> {
   }
 
   Widget _buildMathWidget(String mathContent, {bool isInline = true}) {
-    // Clean up problematic LaTeX commands
-    String cleanMath = mathContent;
-
-    // Replace \over with frac
-    cleanMath = cleanMath.replaceAll(r'\over', r'\frac');
-
-    // Handle other unsupported commands
-    cleanMath = cleanMath.replaceAll(r'\pm', r'\pm');
+    final cleanMath = LatexRenderUtils.normalizeMathExpression(mathContent);
 
     return Container(
       padding: EdgeInsets.all(isInline ? 4 : 0),
@@ -4202,15 +4613,11 @@ class _LectureScreenState extends State<LectureScreen> {
         cleanMath,
         textStyle: TextStyle(
           fontSize: isInline ? 16 : 18,
-          color: Colors.blue.shade900,
+          color: _isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900,
         ),
         onErrorFallback: (FlutterMathException e) {
           print('Math rendering error: $e for expression: $cleanMath');
-          // Try a simpler version
-          String simplifiedMath = mathContent
-              .replaceAll(r'\over', '/')
-              .replaceAll(r'\pm', '±')
-              .replaceAll(r'\sqrt', '√');
+          final simplifiedMath = LatexRenderUtils.fallbackMathText(mathContent);
 
           return Container(
             padding: const EdgeInsets.all(8),
@@ -4260,26 +4667,25 @@ class _LectureScreenState extends State<LectureScreen> {
   // }
 
   Widget _buildLectureParagraph(String text) {
+    final normalizedText = LatexRenderUtils.sanitizeStoredMathTags(text);
     // Check if paragraph contains inline math
-    if (_containsInlineMath(text)) {
-      return _buildInlineMathText(text);
+    if (_containsInlineMath(normalizedText)) {
+      return _buildInlineMathText(normalizedText);
     }
 
     // IMPORTANT: Check if paragraph contains markdown formatting
-    if (text.contains('**') || text.contains('*') || text.contains('~~')) {
-      return _buildLectureText(text); // Use the markdown-aware parser
+    if (normalizedText.contains('**') ||
+        normalizedText.contains('*') ||
+        normalizedText.contains('~~')) {
+      return _buildLectureText(normalizedText);
     }
 
     // Plain text without formatting
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SelectableText(
-        text,
-        style: const TextStyle(
-          fontSize: 16,
-          color: Color(0xFF666666),
-          height: 1.6,
-        ),
+        normalizedText,
+        style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
       ),
     );
   }
@@ -4402,16 +4808,17 @@ class _LectureScreenState extends State<LectureScreen> {
   // }
 
   Widget _buildLectureText(String text) {
-    if (text.isEmpty) return const SizedBox.shrink();
+    final normalizedText = LatexRenderUtils.sanitizeStoredMathTags(text);
+    if (normalizedText.isEmpty) return const SizedBox.shrink();
 
     // If line has math, let _buildInlineMathText handle everything
     // including bold/italic between math segments
-    if (_containsInlineMath(text)) {
-      return _buildInlineMathText(text);
+    if (_containsInlineMath(normalizedText)) {
+      return _buildInlineMathText(normalizedText);
     }
 
     // Pure text with formatting only
-    final spans = _parseFormattingToSpans(text);
+    final spans = _parseFormattingToSpans(normalizedText);
 
     if (spans.isEmpty) return const SizedBox.shrink();
 
@@ -4420,11 +4827,7 @@ class _LectureScreenState extends State<LectureScreen> {
       child: SelectableText.rich(
         TextSpan(
           children: spans,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Color(0xFF666666),
-            height: 1.6,
-          ),
+          style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
         ),
       ),
     );
@@ -4462,7 +4865,7 @@ class _LectureScreenState extends State<LectureScreen> {
   bool _isImageLine(String line) {
     final markdownImageRegex = RegExp(r'!\[.*?\]\(.*?\)');
     final htmlImageRegex = RegExp(
-      r'<img[^>]*src="[^"]+"[^>]*>',
+      r'''<img[^>]*src\s*=\s*(['"]).*?\1[^>]*>''',
       caseSensitive: false,
     );
     final urlRegex = RegExp(
@@ -4662,11 +5065,12 @@ class _LectureScreenState extends State<LectureScreen> {
   // $$$$$$$$$$$$$$$$$$$$$$$
 
   Widget _buildLectureInlineCode(String text) {
+    final normalizedText = LatexRenderUtils.sanitizeStoredMathTags(text);
     final regex = RegExp(r'`([^`]+)`');
-    final matches = regex.allMatches(text);
+    final matches = regex.allMatches(normalizedText);
 
     if (matches.isEmpty) {
-      return _buildLectureText(text);
+      return _buildLectureText(normalizedText);
     }
 
     final spans = <TextSpan>[];
@@ -4678,11 +5082,7 @@ class _LectureScreenState extends State<LectureScreen> {
         spans.add(
           TextSpan(
             text: text.substring(lastIndex, match.start),
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF666666),
-              height: 1.6,
-            ),
+            style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
           ),
         );
       }
@@ -4692,8 +5092,10 @@ class _LectureScreenState extends State<LectureScreen> {
         TextSpan(
           text: match.group(1),
           style: TextStyle(
-            backgroundColor: Colors.grey.shade200,
-            color: Colors.red.shade700,
+            backgroundColor: _isDark
+                ? const Color(0xFF1E293B)
+                : Colors.grey.shade200,
+            color: _isDark ? const Color(0xFFFCA5A5) : Colors.red.shade700,
             fontFamily: 'RobotoMono',
             fontSize: 14,
             fontWeight: FontWeight.w500,
@@ -4705,22 +5107,23 @@ class _LectureScreenState extends State<LectureScreen> {
     }
 
     // Add remaining text
-    if (lastIndex < text.length) {
+    if (lastIndex < normalizedText.length) {
       spans.add(
         TextSpan(
-          text: text.substring(lastIndex),
-          style: const TextStyle(
-            fontSize: 16,
-            color: Color(0xFF666666),
-            height: 1.6,
-          ),
+          text: normalizedText.substring(lastIndex),
+          style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
         ),
       );
     }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SelectableText.rich(TextSpan(children: spans)),
+      child: SelectableText.rich(
+        TextSpan(
+          children: spans,
+          style: TextStyle(fontSize: 16, color: _bodyColor, height: 1.6),
+        ),
+      ),
     );
   }
 
@@ -4821,62 +5224,43 @@ class _LectureScreenState extends State<LectureScreen> {
         altText = markdownMatch.group(1) ?? '';
         imageUrl = markdownMatch.group(2) ?? '';
       } else {
+        final htmlMatch = RegExp(
+          r'''<img[^>]*src\s*=\s*(['"])(.*?)\1[^>]*>''',
+          caseSensitive: false,
+        ).firstMatch(line);
+        if (htmlMatch != null) {
+          imageUrl = htmlMatch.group(2) ?? '';
+          altText =
+              RegExp(
+                r'''alt\s*=\s*(['"])(.*?)\1''',
+                caseSensitive: false,
+              ).firstMatch(line)?.group(2) ??
+              '';
+        }
+
         // Try direct URL
         final urlRegex = RegExp(r'https?://[^\s]+');
         final urlMatch = urlRegex.firstMatch(line);
-        if (urlMatch != null) {
+        if (imageUrl.isEmpty && urlMatch != null) {
           imageUrl = urlMatch.group(0) ?? '';
         }
       }
 
       if (imageUrl.isNotEmpty) {
+        final resolvedImageUrl = _resolveLectureImageUrl(imageUrl);
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      height: 200,
-                      color: Colors.grey.shade200,
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          value: loadingProgress.expectedTotalBytes != null
-                              ? loadingProgress.cumulativeBytesLoaded /
-                                    loadingProgress.expectedTotalBytes!
-                              : null,
-                        ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      height: 200,
-                      color: Colors.grey.shade200,
-                      child: const Center(
-                        child: Icon(
-                          Icons.broken_image,
-                          size: 40,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+              LectureMediaPreview(imageUrl: resolvedImageUrl),
               if (altText.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
                     altText,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF666666),
+                      color: _bodyColor,
                       fontStyle: FontStyle.italic,
                     ),
                     textAlign: TextAlign.center,
@@ -4891,6 +5275,27 @@ class _LectureScreenState extends State<LectureScreen> {
     }
 
     return const SizedBox.shrink();
+  }
+
+  String _resolveLectureImageUrl(String src) {
+    if (src.isEmpty) {
+      return src;
+    }
+
+    if (_offlineDownloadedImageMap.containsKey(src)) {
+      return _offlineDownloadedImageMap[src]!;
+    }
+
+    if (src.startsWith('file://') || src.startsWith('/')) {
+      return src;
+    }
+
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      return _offlineDownloadedImageMap[src] ?? src;
+    }
+
+    final normalized = _normalizeMediaUrl(src);
+    return _offlineDownloadedImageMap[normalized] ?? normalized;
   }
 
   Widget _buildLectureHeading(String line) {
@@ -4951,7 +5356,7 @@ class _LectureScreenState extends State<LectureScreen> {
         style: TextStyle(
           fontSize: fontSize,
           fontWeight: fontWeight,
-          color: color,
+          color: _isDark ? (level <= 3 ? _titleColor : _bodyColor) : color,
         ),
       ),
     );
@@ -4986,15 +5391,24 @@ class _LectureScreenState extends State<LectureScreen> {
           child: DataTable(
             columnSpacing: 16,
             horizontalMargin: 12,
-            headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
-            dataRowColor: MaterialStateProperty.all(Colors.white),
+            headingRowColor: MaterialStateProperty.all(
+              _isDark
+                  ? const Color(0xFF1D4ED8).withValues(alpha: 0.20)
+                  : Colors.blue.shade50,
+            ),
+            dataRowColor: MaterialStateProperty.all(
+              _isDark ? _surfaceColor : Colors.white,
+            ),
             columns: rows[0].map((header) {
               return DataColumn(
                 label: SizedBox(
                   width: 120,
                   child: Text(
                     header,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: _isDark ? _titleColor : null,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -5007,7 +5421,11 @@ class _LectureScreenState extends State<LectureScreen> {
                   return DataCell(
                     SizedBox(
                       width: 120,
-                      child: Text(cell, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        cell,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: _isDark ? _bodyColor : null),
+                      ),
                     ),
                   );
                 }),
@@ -5086,17 +5504,14 @@ class _LectureScreenState extends State<LectureScreen> {
         const SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
+            color: _titleColor,
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF999999)),
-        ),
+        Text(label, style: TextStyle(fontSize: 12, color: _bodyColor)),
       ],
     );
   }
@@ -5142,7 +5557,7 @@ class _LectureScreenState extends State<LectureScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
@@ -5166,12 +5581,12 @@ class _LectureScreenState extends State<LectureScreen> {
                     ),
                   ),
                   icon: const Icon(Icons.arrow_back_ios_rounded, size: 16),
-                  label: const Text(
+                  label: Text(
                     'Previous',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
+                      color: _titleColor,
                     ),
                   ),
                 ),
@@ -5257,15 +5672,15 @@ class _LectureScreenState extends State<LectureScreen> {
   }
 
   Widget _buildLoadingState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 20),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 20),
           Text(
             'Loading topics...',
-            style: TextStyle(fontSize: 16, color: Color(0xFF666666)),
+            style: TextStyle(fontSize: 16, color: _bodyColor),
           ),
         ],
       ),
@@ -5287,7 +5702,7 @@ class _LectureScreenState extends State<LectureScreen> {
             const SizedBox(height: 20),
             Text(
               _errorMessage,
-              style: const TextStyle(fontSize: 16, color: Color(0xFF666666)),
+              style: TextStyle(fontSize: 16, color: _bodyColor),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -5336,18 +5751,18 @@ class _LectureScreenState extends State<LectureScreen> {
           children: [
             Icon(Icons.menu_book, size: 60, color: Colors.grey[400]),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'No topics available',
               style: TextStyle(
                 fontSize: 18,
-                color: Color(0xFF666666),
+                color: _bodyColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'Topics will be added soon by your instructor',
-              style: TextStyle(color: Color(0xFF999999), fontSize: 14),
+              style: TextStyle(color: _bodyColor, fontSize: 14),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -5398,24 +5813,47 @@ class CompletionQuestionDialog extends StatefulWidget {
 
 class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
   String? _selectedAnswer;
-  TextEditingController _textAnswerController = TextEditingController();
+  final TextEditingController _textAnswerController = TextEditingController();
   bool _isSubmitting = false;
   bool _showSolution = false;
 
+  void _resetForRetry() {
+    setState(() {
+      _showSolution = false;
+      _selectedAnswer = null;
+      _textAnswerController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final surface = theme.colorScheme.surface;
+    final altSurface = isDark
+        ? const Color(0xFF162235)
+        : const Color(0xFFF8F9FA);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : const Color(0xFFE0E0E0);
+    final titleColor = theme.colorScheme.onSurface;
+    final bodyColor =
+        theme.textTheme.bodyMedium?.color ?? const Color(0xFF666666);
     final hasOptions =
         widget.topic.options != null && widget.topic.options!.isNotEmpty;
-    final questionText =
-        widget.topic.completionQuestionText ??
-        'Complete this topic to continue';
+    final questionText = widget.topic.completionQuestionText;
+    final questionImageUrl = widget.topic.completionQuestionImageUrl;
     final solutionText = widget.topic.solutionText;
+    final solutionImageUrl = widget.topic.solutionImageUrl;
+    final maxDialogHeight = MediaQuery.of(context).size.height * 0.82;
 
     return Dialog(
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+        color: surface,
+        constraints: BoxConstraints(maxWidth: 560, maxHeight: maxDialogHeight),
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -5431,17 +5869,13 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF333333),
+                      color: titleColor,
                     ),
                   ),
                 ),
-                if (widget.onSkip != null && !_showSolution)
+                if (widget.onSkip != null)
                   IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      size: 20,
-                      color: Color(0xFF999999),
-                    ),
+                    icon: Icon(Icons.close, size: 20, color: bodyColor),
                     onPressed: () {
                       widget.onSkip?.call();
                     },
@@ -5449,187 +5883,211 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Answer correctly to mark this topic as completed',
-              style: TextStyle(fontSize: 14, color: Color(0xFF666666)),
+            Text(
+              _showSolution
+                  ? 'Review the explanation, then retry or skip this topic.'
+                  : 'Answer correctly to mark this topic as completed.',
+              style: TextStyle(fontSize: 14, color: bodyColor),
             ),
             const SizedBox(height: 24),
-
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8F9FA),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Question:',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF666666),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    questionText,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            if (hasOptions)
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: (widget.topic.options ?? []).map((option) {
-                      final letter = option['letter']?.toString();
-                      final text = option['text']?.toString();
-                      final isSelected = _selectedAnswer == letter;
-
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          if (!_showSolution) {
-                            setState(() {
-                              _selectedAnswer = letter;
-                            });
-                          }
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? const Color(0xFF667eea).withOpacity(0.1)
-                                : const Color(0xFFF8F9FA),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isSelected
-                                  ? const Color(0xFF667eea)
-                                  : const Color(0xFFE0E0E0),
-                              width: isSelected ? 2 : 1,
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: altSurface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Question',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: bodyColor,
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 24,
-                                height: 24,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
+                          const SizedBox(height: 10),
+                          if (questionText != null &&
+                              questionText.trim().isNotEmpty)
+                            LectureRichTextBlock(content: questionText),
+                          if (questionImageUrl != null &&
+                              questionImageUrl.trim().isNotEmpty) ...[
+                            if (questionText != null &&
+                                questionText.trim().isNotEmpty)
+                              const SizedBox(height: 12),
+                            LectureMediaPreview(imageUrl: questionImageUrl),
+                          ],
+                          if ((questionText == null ||
+                                  questionText.trim().isEmpty) &&
+                              (questionImageUrl == null ||
+                                  questionImageUrl.trim().isEmpty))
+                            Text(
+                              'Complete this topic to continue.',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: titleColor,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (hasOptions)
+                      Column(
+                        children: (widget.topic.options ?? []).map((option) {
+                          final letter = option['letter']?.toString();
+                          final text = option['text']?.toString();
+                          final isSelected = _selectedAnswer == letter;
+
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              if (!_showSolution) {
+                                setState(() {
+                                  _selectedAnswer = letter;
+                                });
+                              }
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(
+                                        0xFF667eea,
+                                      ).withValues(alpha: 0.12)
+                                    : altSurface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
                                   color: isSelected
                                       ? const Color(0xFF667eea)
-                                      : Colors.transparent,
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFF667eea)
-                                        : const Color(0xFF999999),
-                                  ),
+                                      : borderColor,
+                                  width: isSelected ? 2 : 1,
                                 ),
-                                child: Center(
-                                  child: Text(
-                                    letter ?? '?',
-                                    style: TextStyle(
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
                                       color: isSelected
-                                          ? Colors.white
-                                          : const Color(0xFF333333),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
+                                          ? const Color(0xFF667eea)
+                                          : Colors.transparent,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? const Color(0xFF667eea)
+                                            : const Color(0xFF999999),
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        letter ?? '?',
+                                        style: TextStyle(
+                                          color: isSelected
+                                              ? Colors.white
+                                              : titleColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Text(
-                                  text ?? 'Option',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF333333),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: LectureRichTextBlock(
+                                      content: text ?? 'Option',
+                                      fontSize: 14,
+                                      compact: true,
+                                    ),
                                   ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      )
+                    else
+                      TextField(
+                        controller: _textAnswerController,
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          hintText: 'Type your answer here...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: altSurface,
+                        ),
+                        enabled: !_showSolution,
+                      ),
+                    if (_showSolution)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.red.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Incorrect Answer',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.red,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Review the explanation below, then retry or skip this topic.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.red.shade700,
+                                  height: 1.4,
+                                ),
+                              ),
+                              if (solutionText != null &&
+                                  solutionText.trim().isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                LectureRichTextBlock(content: solutionText),
+                              ],
+                              if (solutionImageUrl != null &&
+                                  solutionImageUrl.trim().isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                LectureMediaPreview(imageUrl: solutionImageUrl),
+                              ],
                             ],
                           ),
                         ),
-                      );
-                    }).toList(),
-                  ),
+                      ),
+                  ],
                 ),
               ),
-            if (!hasOptions)
-              TextField(
-                controller: _textAnswerController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  // REMOVE const from here
-                  hintText: 'Type your answer here...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: const Color(0xFFF8F9FA),
-                ),
-                enabled: !_showSolution,
-              ),
-
-            if (_showSolution && solutionText != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Incorrect Answer',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.red,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        solutionText!,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Try again with the correct answer.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.red,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            const SizedBox(height: 24),
+            ),
+            const SizedBox(height: 20),
 
             Row(
               children: [
-                if (widget.onSkip != null && !_showSolution)
+                if (widget.onSkip != null)
                   Expanded(
                     child: OutlinedButton(
                       onPressed: _isSubmitting
@@ -5638,32 +6096,31 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
                               widget.onSkip?.call();
                             },
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFE0E0E0)),
+                        side: BorderSide(color: borderColor),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Skip',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF666666),
+                          color: bodyColor,
                         ),
                       ),
                     ),
                   ),
-                if (widget.onSkip != null && !_showSolution)
-                  const SizedBox(width: 12),
+                if (widget.onSkip != null) const SizedBox(width: 12),
 
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _isSubmitting ? null : _submitAnswer,
+                    onPressed: _isSubmitting
+                        ? null
+                        : (_showSolution ? _resetForRetry : _submitAnswer),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _showSolution
-                          ? const Color(0xFF667eea)
-                          : const Color(0xFF667eea),
+                      backgroundColor: const Color(0xFF667eea),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -5741,7 +6198,6 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
       });
 
       if (isCorrect) {
-        Navigator.pop(context);
         widget.onAnswerSubmitted(true);
       } else {
         setState(() {
@@ -5752,6 +6208,10 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
       setState(() {
         _isSubmitting = false;
       });
+
+      if (!mounted) {
+        return;
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -5766,6 +6226,605 @@ class _CompletionQuestionDialogState extends State<CompletionQuestionDialog> {
   void dispose() {
     _textAnswerController.dispose();
     super.dispose();
+  }
+}
+
+class LectureRichTextBlock extends StatelessWidget {
+  final String content;
+  final double fontSize;
+  final bool compact;
+
+  const LectureRichTextBlock({
+    super.key,
+    required this.content,
+    this.fontSize = 15,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _prepareLectureHtml(content);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark
+        ? const Color(0xFFF8FAFC)
+        : const Color(0xFF333333);
+    final mutedColor = isDark
+        ? const Color(0xFFCBD5E1)
+        : const Color(0xFF475569);
+    final tableColor = isDark
+        ? const Color(0xFF162235)
+        : const Color(0xFFF8FAFC);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : const Color(0xFFE2E8F0);
+    final inlineCodeBackground = isDark
+        ? const Color(0xFF1E293B)
+        : const Color(0xFFF1F5F9);
+    final inlineCodeText = isDark
+        ? const Color(0xFFE2E8F0)
+        : const Color(0xFF0F172A);
+
+    return Html(
+      data: normalized,
+      shrinkWrap: true,
+      extensions: [
+        TagExtension(
+          tagsToExtend: {'tex-inline'},
+          builder: (context) => _LectureMathWidget(
+            expression: _decodeHtmlEntities(context.innerHtml.trim()),
+            isInline: true,
+          ),
+        ),
+        TagExtension(
+          tagsToExtend: {'tex-block'},
+          builder: (context) => _LectureMathWidget(
+            expression: _decodeHtmlEntities(context.innerHtml.trim()),
+            isInline: false,
+          ),
+        ),
+        TagExtension(
+          tagsToExtend: {'pre'},
+          builder: (context) {
+            final rawHtml = context.innerHtml;
+            final codeContent = _extractCodeTextFromHtml(rawHtml);
+            final language = _extractCodeLanguageFromHtml(rawHtml);
+            if (codeContent.trim().isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return _LectureCodeBlock(
+              code: codeContent,
+              language: language,
+              compact: compact,
+            );
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'code'},
+          builder: (context) {
+            final rawHtml = context.innerHtml;
+            if (rawHtml.contains('\n')) {
+              final codeContent = _extractCodeTextFromHtml(rawHtml);
+              final language = _extractCodeLanguageFromHtml(rawHtml);
+              if (codeContent.trim().isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return _LectureCodeBlock(
+                code: codeContent,
+                language: language,
+                compact: compact,
+              );
+            }
+
+            final inlineCode = _decodeHtmlEntities(
+              rawHtml.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
+            );
+            if (inlineCode.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: inlineCodeBackground,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: SelectableText(
+                inlineCode,
+                style: TextStyle(
+                  fontFamily: 'RobotoMono',
+                  fontSize: compact ? 12 : 13,
+                  color: inlineCodeText,
+                ),
+              ),
+            );
+          },
+        ),
+        TagExtension(
+          tagsToExtend: {'img'},
+          builder: (context) {
+            final src = context.attributes['src'] ?? '';
+            if (src.trim().isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Padding(
+              padding: EdgeInsets.symmetric(vertical: compact ? 6 : 10),
+              child: LectureMediaPreview(imageUrl: _normalizeImageUrl(src)),
+            );
+          },
+        ),
+      ],
+      style: {
+        'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+        'body': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          fontSize: FontSize(fontSize),
+          lineHeight: const LineHeight(1.55),
+          color: textColor,
+        ),
+        'p': Style(
+          margin: Margins.only(bottom: compact ? 8 : 12),
+          fontSize: FontSize(fontSize),
+          lineHeight: const LineHeight(1.55),
+          color: textColor,
+        ),
+        'div': Style(
+          margin: Margins.only(bottom: compact ? 6 : 8),
+          fontSize: FontSize(fontSize),
+          lineHeight: const LineHeight(1.55),
+          color: textColor,
+        ),
+        'span': Style(
+          fontSize: FontSize(fontSize),
+          lineHeight: const LineHeight(1.55),
+          color: textColor,
+        ),
+        'strong': Style(fontWeight: FontWeight.w700, color: textColor),
+        'b': Style(fontWeight: FontWeight.w700, color: textColor),
+        'em': Style(fontStyle: FontStyle.italic, color: textColor),
+        'i': Style(fontStyle: FontStyle.italic, color: textColor),
+        'mark': Style(
+          backgroundColor: const Color(0xFFFEF08A),
+          color: const Color(0xFF1F2937),
+          padding: HtmlPaddings.symmetric(horizontal: 3, vertical: 1),
+        ),
+        'h1': Style(
+          fontSize: FontSize(compact ? 18 : 22),
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+        'h2': Style(
+          fontSize: FontSize(compact ? 17 : 20),
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+        'h3': Style(
+          fontSize: FontSize(compact ? 16 : 18),
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+        'li': Style(
+          margin: Margins.only(bottom: compact ? 5 : 8),
+          fontSize: FontSize(fontSize),
+          color: textColor,
+        ),
+        'blockquote': Style(
+          padding: HtmlPaddings.only(left: 14, top: 8, bottom: 8),
+          border: Border(
+            left: BorderSide(
+              color: isDark
+                  ? const Color(0xFF60A5FA)
+                  : Colors.blueGrey.shade200,
+              width: 4,
+            ),
+          ),
+          color: mutedColor,
+        ),
+        'table': Style(
+          backgroundColor: tableColor,
+          border: Border.all(color: borderColor),
+        ),
+        'th': Style(
+          padding: HtmlPaddings.all(10),
+          backgroundColor: isDark
+              ? const Color(0xFF1D4ED8).withValues(alpha: 0.16)
+              : const Color(0xFFEFF6FF),
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+        'td': Style(padding: HtmlPaddings.all(10), color: textColor),
+        'code': Style(
+          backgroundColor: inlineCodeBackground,
+          fontFamily: 'RobotoMono',
+          padding: HtmlPaddings.symmetric(horizontal: 6, vertical: 2),
+          color: inlineCodeText,
+        ),
+        'pre': Style(
+          backgroundColor: const Color(0xFF0F172A),
+          color: Colors.white,
+          fontFamily: 'RobotoMono',
+          padding: HtmlPaddings.all(14),
+        ),
+      },
+      onLinkTap: (url, _, __) async {
+        if (url == null || url.isEmpty) {
+          return;
+        }
+        final uri = Uri.tryParse(url);
+        if (uri != null) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+    );
+  }
+
+  static String _prepareLectureHtml(String rawContent) {
+    final trimmed = LatexRenderUtils.sanitizeStoredMathTags(rawContent).trim();
+    final looksLikeHtml = RegExp(r'<[a-zA-Z/][^>]*>').hasMatch(trimmed);
+    String normalized = looksLikeHtml
+        ? trimmed
+        : '<p>${_escapeHtmlText(trimmed).replaceAll('\n', '<br/>')}</p>';
+
+    normalized = _replaceMarkdownImages(normalized);
+    normalized = _replaceCkEditorMathWithCustomTags(normalized);
+    normalized = LatexRenderUtils.replaceBracketMathWithCustomTags(
+      normalized,
+      _escapeHtmlText,
+    );
+    normalized = _replaceDollarMathWithCustomTags(normalized);
+    normalized = _normalizeImageUrlsInHtml(normalized);
+    return normalized;
+  }
+
+  static String _replaceMarkdownImages(String content) {
+    return content.replaceAllMapped(RegExp(r'!\[(.*?)\]\((.*?)\)'), (match) {
+      final alt = _escapeHtmlText(match.group(1) ?? '');
+      final src = _normalizeImageUrl(match.group(2) ?? '');
+      return '<img src="$src" alt="$alt" />';
+    });
+  }
+
+  static String _replaceCkEditorMathWithCustomTags(String htmlContent) {
+    String result = htmlContent;
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<span[^>]*class="[^"]*math-tex[^"]*"[^>]*>(.*?)</span>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) => '<tex-inline>${match.group(1) ?? ''}</tex-inline>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<script[^>]*type="math/tex; mode=display"[^>]*>(.*?)</script>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) =>
+          '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(
+        r'<script[^>]*type="math/tex"[^>]*>(.*?)</script>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      (match) =>
+          '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+    );
+
+    return result;
+  }
+
+  static String _replaceDollarMathWithCustomTags(String content) {
+    String result = LatexRenderUtils.normalizeDelimitedMath(content);
+
+    result = result.replaceAllMapped(
+      RegExp(r'\$\$(.+?)\$\$', dotAll: true),
+      (match) =>
+          '<tex-block>${_escapeHtmlText(match.group(1) ?? '')}</tex-block>',
+    );
+
+    result = result.replaceAllMapped(
+      RegExp(r'(?<!\$)\$([^\$]+?)\$(?!\$)', dotAll: true),
+      (match) =>
+          '<tex-inline>${_escapeHtmlText(match.group(1) ?? '')}</tex-inline>',
+    );
+
+    return result;
+  }
+
+  static String _normalizeImageUrlsInHtml(String htmlContent) {
+    return htmlContent.replaceAllMapped(
+      RegExp(
+        '<img([^>]*?)src\\s*=\\s*([\'"])([^\'"]*)([\'"])([^>]*)>',
+        caseSensitive: false,
+      ),
+      (match) {
+        final before = match.group(1) ?? '';
+        final quote = match.group(2) ?? '"';
+        final src = match.group(3) ?? '';
+        final after = match.group(5) ?? '';
+        return '<img$before src=$quote${_normalizeImageUrl(src)}$quote$after>';
+      },
+    );
+  }
+
+  static String _normalizeImageUrl(String src) {
+    if (src.isEmpty) {
+      return src;
+    }
+    if (src.startsWith('http://') ||
+        src.startsWith('https://') ||
+        src.startsWith('/') ||
+        src.startsWith('file://')) {
+      return src;
+    }
+
+    final baseUrl = ApiEndpoints.baseUrl;
+    String imageUrl;
+
+    if (src.startsWith('media/') || src.startsWith('/media/')) {
+      imageUrl = src.startsWith('media/') ? '$baseUrl/$src' : '$baseUrl$src';
+    } else if (src.startsWith('uploads/')) {
+      imageUrl = '$baseUrl/media/$src';
+    } else {
+      imageUrl = '$baseUrl/media/$src';
+    }
+
+    return imageUrl.replaceAll('//media/', '/media/').replaceAll(':/', '://');
+  }
+
+  static String _extractCodeLanguageFromHtml(String rawHtml) {
+    final classMatch = RegExp(
+      r'class="([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(rawHtml);
+    if (classMatch == null) {
+      return '';
+    }
+
+    final classes = classMatch.group(1)?.split(RegExp(r'\s+')) ?? const [];
+    for (final cls in classes) {
+      if (cls.startsWith('language-')) {
+        return cls.replaceFirst('language-', '').trim();
+      }
+    }
+
+    return '';
+  }
+
+  static String _extractCodeTextFromHtml(String rawHtml) {
+    final stripped = rawHtml
+        .replaceAll(RegExp(r'</?(pre|code)[^>]*>', caseSensitive: false), '')
+        .replaceAll('<br>', '\n')
+        .replaceAll('<br/>', '\n')
+        .replaceAll('<br />', '\n')
+        .replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]*>'), '');
+
+    return _decodeHtmlEntities(stripped).trimRight();
+  }
+
+  static String _decodeHtmlEntities(String text) {
+    return text
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll('&times;', '×')
+        .replaceAll('&divide;', '÷')
+        .replaceAll('&plusmn;', '±')
+        .replaceAll('&middot;', '·');
+  }
+
+  static String _escapeHtmlText(String text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+}
+
+class _LectureMathWidget extends StatelessWidget {
+  final String expression;
+  final bool isInline;
+
+  const _LectureMathWidget({required this.expression, required this.isInline});
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanMath = LatexRenderUtils.normalizeMathExpression(expression);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final math = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Math.tex(
+        cleanMath,
+        textStyle: TextStyle(
+          fontSize: isInline ? 14 : 18,
+          color: isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900,
+        ),
+        onErrorFallback: (FlutterMathException e) {
+          final simplified = LatexRenderUtils.fallbackMathText(expression);
+
+          return Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: SelectableText(
+              simplified,
+              style: TextStyle(
+                fontFamily: 'RobotoMono',
+                color: Colors.orange.shade800,
+                fontSize: isInline ? 12 : 14,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (isInline) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: math,
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF1D4ED8).withValues(alpha: 0.12)
+            : Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? const Color(0xFF60A5FA).withValues(alpha: 0.32)
+              : Colors.blue.shade200,
+        ),
+      ),
+      child: math,
+    );
+  }
+}
+
+class _LectureCodeBlock extends StatelessWidget {
+  final String code;
+  final String language;
+  final bool compact;
+
+  const _LectureCodeBlock({
+    required this.code,
+    required this.language,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final displayLanguage = language.trim().isEmpty
+        ? 'CODE'
+        : language.toUpperCase();
+
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: compact ? 8 : 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF1E293B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFF111827),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(10),
+                topRight: Radius.circular(10),
+              ),
+            ),
+            child: Text(
+              displayLanguage,
+              style: const TextStyle(
+                color: Color(0xFF93C5FD),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SelectableText(
+                code,
+                style: TextStyle(
+                  fontFamily: 'RobotoMono',
+                  fontSize: compact ? 12 : 13,
+                  color: const Color(0xFFE2E8F0),
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LectureMediaPreview extends StatelessWidget {
+  final String imageUrl;
+
+  const LectureMediaPreview({super.key, required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isLocalFile =
+        imageUrl.startsWith('/') || imageUrl.startsWith('file://');
+    final imageProvider = isLocalFile
+        ? FileImage(File(imageUrl.replaceFirst('file://', ''))) as ImageProvider
+        : NetworkImage(imageUrl);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image(
+        image: imageProvider,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF162235) : const Color(0xFFF8F9FA),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : const Color(0xFFE2E8F0),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.broken_image_outlined,
+                  color: Color(0xFF94A3B8),
+                  size: 32,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Image preview unavailable',
+                  style: TextStyle(
+                    color: isDark
+                        ? const Color(0xFFCBD5E1)
+                        : const Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -5799,10 +6858,13 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                 topRight: Radius.circular(8),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.code, size: 16, color: Colors.grey),
                     const SizedBox(width: 8),
@@ -5828,6 +6890,7 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.content_copy, size: 12, color: Colors.white),
                         SizedBox(width: 6),

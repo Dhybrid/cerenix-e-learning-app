@@ -90,9 +90,12 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: isDark
+          ? const Color(0xFF09111F)
+          : const Color(0xFFF8FAFC),
       appBar: CustomAppBar(
         scaffoldKey: _scaffoldKey,
         title: 'Features',
@@ -121,6 +124,8 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
   }
 
   Widget _buildAdvertBoard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       height: 120, // Small height as requested
       margin: const EdgeInsets.all(16),
@@ -140,7 +145,10 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
           gradient: LinearGradient(
             begin: Alignment.bottomRight,
             end: Alignment.topLeft,
-            colors: [Colors.black.withOpacity(0.3), Colors.transparent],
+            colors: [
+              Colors.black.withValues(alpha: isDark ? 0.48 : 0.30),
+              Colors.transparent,
+            ],
           ),
         ),
         child: const Center(
@@ -158,14 +166,16 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
   }
 
   Widget _buildFeaturesHeading() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Text(
         'Features',
         style: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1A1A2E),
+          color: isDark ? const Color(0xFFF8FAFC) : const Color(0xFF1A1A2E),
         ),
       ),
     );
@@ -193,6 +203,15 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
   }
 
   Widget _buildFeatureCard(Map<String, dynamic> feature) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? const Color(0xFF101A2B) : Colors.white;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : const Color(0xFFE2E8F0);
+    final titleColor = isDark
+        ? const Color(0xFFF8FAFC)
+        : const Color(0xFF1A1A2E);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -200,11 +219,12 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: surface,
             borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.10),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -222,14 +242,14 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
                     width: double.infinity,
                     height: double.infinity,
                     errorBuilder: (_, __, ___) => Container(
-                      color: (feature['color'] as Color).withOpacity(0.1),
+                      color: (feature['color'] as Color).withValues(alpha: 0.1),
                     ),
                   ),
                 )
               else
                 Container(
                   decoration: BoxDecoration(
-                    color: (feature['color'] as Color).withOpacity(0.1),
+                    color: (feature['color'] as Color).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
@@ -247,11 +267,15 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
+                          color: isDark
+                              ? const Color(0xFF162235).withValues(alpha: 0.92)
+                              : Colors.white.withValues(alpha: 0.92),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(
+                                alpha: isDark ? 0.24 : 0.10,
+                              ),
                               blurRadius: 6,
                               offset: const Offset(0, 2),
                             ),
@@ -268,10 +292,10 @@ class _FeaturesScreenState extends State<FeaturesScreen> {
                     // Feature Title
                     Text(
                       feature['title'] as String,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1A2E),
+                        color: titleColor,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,

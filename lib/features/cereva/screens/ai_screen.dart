@@ -5,8 +5,11 @@ class AIScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: isDark
+          ? const Color(0xFF09111F)
+          : const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text('AI Tools'),
         backgroundColor: Colors.transparent,

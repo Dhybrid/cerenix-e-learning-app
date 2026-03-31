@@ -1,8 +1,8 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_controller.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'features/cgpa/models/cgpa_models.dart';
 
@@ -53,7 +53,6 @@ import 'features/cereva/screens/voice_chat_welcome_screen.dart';
 import 'features/documents/screens/document_selector_screen.dart';
 
 import 'features/documents/screens/study_guide_screen.dart';
-import 'features/documents/screens/document_viewer_screen.dart';
 
 import 'features/calendar/screens/calendar_screen.dart';
 import 'features/calendar/screens/timer_screen.dart';
@@ -64,6 +63,7 @@ import 'features/profile/screens/profile_details.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/profile/screens/update_level_screen.dart';
 import 'features/profile/screens/edit_profile_screen.dart';
+import 'features/settings/screens/settings_screen.dart';
 
 import 'features/activate/screens/activate_screen.dart';
 import 'features/billing/screens/billing_screen.dart';
@@ -74,6 +74,7 @@ import 'features/info/screens/general_info_screen.dart';
 import 'features/info/screens/notification_screen.dart';
 import 'features/home/screens/coming_soon_screen.dart';
 import 'features/debug/debug_screen_logOut.dart';
+import 'core/services/activation_status_service.dart';
 
 // lib/main.dart
 
@@ -192,6 +193,9 @@ void main() async {
 
     print('📦 All boxes opened successfully');
 
+    await ActivationStatusService.initialize();
+    print('✅ ActivationStatusService initialized');
+
     // Step 5: Initialize services
     // final offlineService = OfflineService();
     await OfflineService().initHive();
@@ -208,6 +212,13 @@ void main() async {
   } catch (e) {
     print('❌ ERROR during initialization: $e');
     // Don't crash - try to continue
+  }
+
+  try {
+    await AppThemeController.instance.load();
+    print('✅ Theme mode loaded');
+  } catch (e) {
+    print('⚠️ Could not load saved theme mode: $e');
   }
 
   runApp(const CerenixApp());
@@ -340,212 +351,223 @@ class CerenixApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Cerenix',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      initialRoute: '/',
-      routes: {
-        '/': (_) => const SplashScreen(),
-        '/home': (_) => const MainLayout(), // CHANGE THIS LINE
-        '/coming-soon': (_) => const ComingSoonScreen(),
+    return AnimatedBuilder(
+      animation: AppThemeController.instance,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Cerenix',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: AppThemeController.instance.themeMode,
+          initialRoute: '/',
+          routes: {
+            '/': (_) => const SplashScreen(),
+            '/home': (_) => const MainLayout(), // CHANGE THIS LINE
+            '/coming-soon': (_) => const ComingSoonScreen(),
 
-        '/onboarding': (context) => const CerenixOnboardingScreen(),
-        '/signup': (context) => const SignupPage(),
-        '/signin': (context) => const SigninPage(),
-        '/academic_setup': (context) => const AcademicSetupScreen(),
-        '/terms': (context) =>
-            const TermsAndConditionsScreen(userData: UserOnboardingData.empty),
+            '/onboarding': (context) => const CerenixOnboardingScreen(),
+            '/signup': (context) => const SignupPage(),
+            '/signin': (context) => const SigninPage(),
+            '/academic_setup': (context) => const AcademicSetupScreen(),
+            '/terms': (context) => const TermsAndConditionsScreen(
+              userData: UserOnboardingData.empty,
+            ),
 
-        // '/home': (_) => const HomeScreen(),
-        '/courses': (_) => const CoursesScreen(),
+            // '/home': (_) => const HomeScreen(),
+            '/courses': (_) => const CoursesScreen(),
 
-        // '/course-detail': (context) {
-        //   final course = ModalRoute.of(context)!.settings.arguments;
-        //   return CourseDetailsScreen(course: course);
-        // },
-        '/course-detail': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments;
+            // '/course-detail': (context) {
+            //   final course = ModalRoute.of(context)!.settings.arguments;
+            //   return CourseDetailsScreen(course: course);
+            // },
+            '/course-detail': (context) {
+              final args = ModalRoute.of(context)!.settings.arguments;
 
-          if (args is Course) {
-            // If argument is already a Course object
-            return CourseDetailsScreen(course: args);
-          } else if (args is Map<String, dynamic>) {
-            // If argument is a Map (from older code), convert it to Course
-            try {
-              final course = Course.fromJson(args);
-              return CourseDetailsScreen(course: course);
-            } catch (e) {
-              print('Error converting map to Course: $e');
-              return const Scaffold(
-                body: Center(child: Text('Error: Invalid course data')),
+              if (args is Course) {
+                // If argument is already a Course object
+                return CourseDetailsScreen(course: args);
+              } else if (args is Map<String, dynamic>) {
+                // If argument is a Map (from older code), convert it to Course
+                try {
+                  final course = Course.fromJson(args);
+                  return CourseDetailsScreen(course: course);
+                } catch (e) {
+                  print('Error converting map to Course: $e');
+                  return const Scaffold(
+                    body: Center(child: Text('Error: Invalid course data')),
+                  );
+                }
+              } else {
+                // Handle null or other types
+                return const Scaffold(
+                  body: Center(child: Text('Course not found')),
+                );
+              }
+            },
+
+            // '/lecture': (context) {
+            //   final args =
+            //       ModalRoute.of(context)!.settings.arguments
+            //           as Map<String, dynamic>;
+            //   return LectureScreen(
+            //     course: args['course'],
+            //     outline: args['outline'],
+            //     outlines: args['outlines'],
+            //   );
+            // },
+            '/lecture': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
+              return LectureScreen(
+                course: args['course'],
+                outline: args['outline'],
+                outlines: args['outlines'],
               );
-            }
-          } else {
-            // Handle null or other types
-            return const Scaffold(
-              body: Center(child: Text('Course not found')),
-            );
-          }
-        },
+            },
 
-        // '/lecture': (context) {
-        //   final args =
-        //       ModalRoute.of(context)!.settings.arguments
-        //           as Map<String, dynamic>;
-        //   return LectureScreen(
-        //     course: args['course'],
-        //     outline: args['outline'],
-        //     outlines: args['outlines'],
-        //   );
-        // },
-        '/lecture': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>;
-          return LectureScreen(
-            course: args['course'],
-            outline: args['outline'],
-            outlines: args['outlines'],
-          );
-        },
+            // UPDATE THESE PAST QUESTION ROUTES:
+            '/past-questions': (_) =>
+                const PastQuestionsSelectionScreen(), // Changed to selection screen
+            // In your lib/main.dart, update the route for past-questions-screen:
+            '/past-questions-screen': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
+              return PastQuestionsScreen(
+                courseId: args['courseId'] ?? '',
+                courseName: args['courseName'] ?? '',
+                sessionId: args['sessionId'],
+                sessionName: args['sessionName'] ?? '',
+                topicId: args['topicId'], // ADD THIS
+                topicName: args['topicName'], // ADD THIS
+                randomMode: args['randomMode'] ?? false,
+              );
+            },
 
-        // UPDATE THESE PAST QUESTION ROUTES:
-        '/past-questions': (_) =>
-            const PastQuestionsSelectionScreen(), // Changed to selection screen
-        // In your lib/main.dart, update the route for past-questions-screen:
-        '/past-questions-screen': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>;
-          return PastQuestionsScreen(
-            courseId: args['courseId'] ?? '',
-            courseName: args['courseName'] ?? '',
-            sessionId: args['sessionId'],
-            sessionName: args['sessionName'] ?? '',
-            topicId: args['topicId'], // ADD THIS
-            topicName: args['topicName'], // ADD THIS
-            randomMode: args['randomMode'] ?? false,
-          );
-        },
+            '/question-gpt': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
+              return QuestionGPTScreen(
+                question: args['question'] as PastQuestion,
+                courseName: args['courseName'] ?? '',
+                topicName: args['topicName'],
+                showAnswer: args['showAnswer'] ?? false,
+              );
+            },
+            '/test-questions': (_) => const TestQuestionsSelectionScreen(),
+            // In your lib/main.dart, update the route for past-questions-screen:
+            '/test-questions-screen': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
+              return TestQuestionsScreen(
+                courseId: args['courseId'] ?? '',
+                courseName: args['courseName'] ?? '',
+                sessionId: args['sessionId'],
+                sessionName: args['sessionName'] ?? '',
+                topicId: args['topicId'], // ADD THIS
+                topicName: args['topicName'], // ADD THIS
+                randomMode: args['randomMode'] ?? false,
+              );
+            },
+            '/cbt-questions': (_) => const CBTSelectionScreen(),
 
-        '/question-gpt': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>;
-          return QuestionGPTScreen(
-            question: args['question'] as PastQuestion,
-            courseName: args['courseName'] ?? '',
-            topicName: args['topicName'],
-            showAnswer: args['showAnswer'] ?? false,
-          );
-        },
-        '/test-questions': (_) => const TestQuestionsSelectionScreen(),
-        // In your lib/main.dart, update the route for past-questions-screen:
-        '/test-questions-screen': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>;
-          return TestQuestionsScreen(
-            courseId: args['courseId'] ?? '',
-            courseName: args['courseName'] ?? '',
-            sessionId: args['sessionId'],
-            sessionName: args['sessionName'] ?? '',
-            topicId: args['topicId'], // ADD THIS
-            topicName: args['topicName'], // ADD THIS
-            randomMode: args['randomMode'] ?? false,
-          );
-        },
-        '/cbt-questions': (_) => const CBTSelectionScreen(),
+            '/cbtquestions': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
+              return CBTQuestionsScreen(
+                courseId: args['courseId'] ?? '',
+                courseName: args['courseName'] ?? '',
+                sessionId: args['sessionId'],
+                sessionName: args['sessionName'] ?? '',
+                topicId: args['topicId'],
+                topicName: args['topicName'],
+                randomMode: args['randomMode'] ?? false,
+                enableTimer: args['enableTimer'] ?? false,
+                isOffline: args['isOffline'] ?? true, // CBT is offline-only
+              );
+            },
 
-        '/cbtquestions': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>;
-          return CBTQuestionsScreen(
-            courseId: args['courseId'] ?? '',
-            courseName: args['courseName'] ?? '',
-            sessionId: args['sessionId'],
-            sessionName: args['sessionName'] ?? '',
-            topicId: args['topicId'],
-            topicName: args['topicName'],
-            randomMode: args['randomMode'] ?? false,
-            enableTimer: args['enableTimer'] ?? false,
-            isOffline: args['isOffline'] ?? true, // CBT is offline-only
-          );
-        },
+            // '/cbtquestions': (context) {
+            //   final args =
+            //       ModalRoute.of(context)!.settings.arguments
+            //           as Map<String, dynamic>;
+            //   return CbtMainScreen(
+            //     courseId: args['courseId'] ?? '',
+            //     courseName: args['courseName'] ?? '',
+            //     sessionId: args['sessionId'],
+            //     sessionName: args['sessionName'] ?? '',
+            //     topicId: args['topicId'],
+            //     topicName: args['topicName'],
+            //     questionCount:
+            //         args['questionCount'] ?? 20, // Default to 20 questions
+            //     timeLimit: args['timeLimit'] ?? 30, // Default to 30 minutes
+            //   );
+            // },
 
-        // '/cbtquestions': (context) {
-        //   final args =
-        //       ModalRoute.of(context)!.settings.arguments
-        //           as Map<String, dynamic>;
-        //   return CbtMainScreen(
-        //     courseId: args['courseId'] ?? '',
-        //     courseName: args['courseName'] ?? '',
-        //     sessionId: args['sessionId'],
-        //     sessionName: args['sessionName'] ?? '',
-        //     topicId: args['topicId'],
-        //     topicName: args['topicName'],
-        //     questionCount:
-        //         args['questionCount'] ?? 20, // Default to 20 questions
-        //     timeLimit: args['timeLimit'] ?? 30, // Default to 30 minutes
-        //   );
-        // },
+            // Add this route in your routes section:
+            // '/study-guide': (_) => const StudyGuideScreen(
+            //   university: 'University of Lagos', // Set your default university
+            //   department: 'Computer Science', // Set your default department
+            //   level: 100, // Set your default level
+            //   semester: 1, // Set your default semester
+            // ),
+            '/study-guide': (context) {
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>?;
 
-        // Add this route in your routes section:
-        // '/study-guide': (_) => const StudyGuideScreen(
-        //   university: 'University of Lagos', // Set your default university
-        //   department: 'Computer Science', // Set your default department
-        //   level: 100, // Set your default level
-        //   semester: 1, // Set your default semester
-        // ),
-        '/study-guide': (context) {
-          final args =
-              ModalRoute.of(context)!.settings.arguments
-                  as Map<String, dynamic>?;
+              // Default values (should rarely be used)
+              final defaultUniversity =
+                  args?['university'] ?? 'University of Lagos';
+              final defaultDepartment =
+                  args?['department'] ?? 'Computer Science';
+              final defaultLevel = args?['level'] ?? 100;
+              final defaultSemester = args?['semester'] ?? 1;
 
-          // Default values (should rarely be used)
-          final defaultUniversity =
-              args?['university'] ?? 'University of Lagos';
-          final defaultDepartment = args?['department'] ?? 'Computer Science';
-          final defaultLevel = args?['level'] ?? 100;
-          final defaultSemester = args?['semester'] ?? 1;
+              return StudyGuideScreen(
+                university: defaultUniversity,
+                department: defaultDepartment,
+                level: defaultLevel,
+                semester: defaultSemester,
+              );
+            },
 
-          return StudyGuideScreen(
-            university: defaultUniversity,
-            department: defaultDepartment,
-            level: defaultLevel,
-            semester: defaultSemester,
-          );
-        },
+            '/ai': (_) => const AIScreen(),
+            '/ai-home': (_) => const AIHomeScreen(),
+            '/scanner': (_) => const NewScannerScreen(),
+            '/ai-voice': (_) => const VoiceWelcomeScreen(),
+            '/voice-chat': (_) => const VoiceChatScreen(),
+            '/ai-board': (_) => const AIBoardScreen(),
+            '/gpt': (_) => const AIChatScreen(),
 
-        '/ai': (_) => const AIScreen(),
-        '/ai-home': (_) => const AIHomeScreen(),
-        '/scanner': (_) => const NewScannerScreen(),
-        '/ai-voice': (_) => const VoiceWelcomeScreen(),
-        '/voice-chat': (_) => const VoiceChatScreen(),
-        '/ai-board': (_) => const AIBoardScreen(),
-        '/gpt': (_) => const AIChatScreen(),
+            '/progress': (_) => const ProgressScreen(),
+            '/cgpa': (_) => const CGPACalculatorScreen(),
+            '/profile': (_) => const ProfileScreen(),
+            '/profile-details': (_) => const ProfileDetailsScreen(),
+            '/activate': (_) => const ActivationScreen(),
+            '/activation': (_) => const ActivationScreen(),
+            '/billing': (_) => const BillingScreen(),
 
-        '/progress': (_) => const ProgressScreen(),
-        '/cgpa': (_) => const CGPACalculatorScreen(),
-        '/profile': (_) => const ProfileScreen(),
-        '/profile-details': (_) => const ProfileDetailsScreen(),
-        '/activate': (_) => const ActivationScreen(),
-        '/billing': (_) => const BillingScreen(),
+            '/features': (_) => const FeaturesScreen(),
 
-        '/features': (_) => const FeaturesScreen(),
+            '/calendar': (_) => const CalendarTimerScreen(),
+            '/timer': (_) => const TimerScreen(),
+            '/general-info': (_) => const GeneralInfoScreen(),
+            '/notification': (context) => const NotificationScreen(),
 
-        '/calendar': (_) => const CalendarTimerScreen(),
-        '/timer': (_) => const TimerScreen(),
-        '/general-info': (_) => const GeneralInfoScreen(),
-        '/notification': (context) => const NotificationScreen(),
+            '/update-level': (_) => const UpdateLevelScreen(),
+            '/edit-profile': (_) => const EditProfileScreen(),
+            '/settings': (_) => const SettingsScreen(),
 
-        '/update-level': (_) => const UpdateLevelScreen(),
-        '/settings': (_) => const EditProfileScreen(),
-
-        '/documents': (_) => const DocumentSelectorScreen(),
-        '/debug': (context) => DebugScreen(),
+            '/documents': (_) => const DocumentSelectorScreen(),
+            '/debug': (context) => DebugScreen(),
+          },
+        );
       },
     );
   }

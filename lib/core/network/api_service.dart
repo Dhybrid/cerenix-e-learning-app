@@ -8,7 +8,6 @@ import '../../features/courses/models/course_models.dart';
 import '../../features/past_questions/models/past_question_models.dart';
 import '../../features/past_questions/models/test_question_models.dart';
 import '../../features/documents/models/document_model.dart';
-import 'dart:math';
 import 'dart:async';
 import 'dart:io';
 // lib/core/network/api_service.dart — Add this import at the top
@@ -448,51 +447,6 @@ class ApiService {
     }
   }
 
-  String _getUserFriendlyErrorMessage(dynamic error, int statusCode) {
-    if (error is String) {
-      // Clean up technical messages
-      if (error.contains('backend') || error.contains('server')) {
-        return 'Server error. Please try again later.';
-      }
-      if (error.contains('connection') || error.contains('network')) {
-        return 'Network error. Please check your connection.';
-      }
-      if (error.contains('timeout')) {
-        return 'Request timeout. Please try again.';
-      }
-      // General cleanup
-      return error
-          .replaceAll('Failed to', 'Unable to')
-          .replaceAll('Status:', '')
-          .replaceAll(RegExp(r'\(\d+\)'), '')
-          .trim();
-    }
-
-    // Status code based messages
-    switch (statusCode) {
-      case 400:
-        return 'Invalid request. Please check your input.';
-      case 401:
-        return 'Session expired. Please login again.';
-      case 403:
-        return 'Access denied.';
-      case 404:
-        return 'Resource not found.';
-      case 408:
-        return 'Request timeout. Please try again.';
-      case 409:
-        return 'Conflict detected. Please try a different value.';
-      case 500:
-        return 'Server error. Please try again later.';
-      case 502:
-      case 503:
-      case 504:
-        return 'Service temporarily unavailable.';
-      default:
-        return 'An error occurred. Please try again.';
-    }
-  }
-
   // Check if user is logged in (for app startup)
   Future<bool> isUserLoggedIn() async {
     return await _isUserAuthenticated();
@@ -649,56 +603,6 @@ class ApiService {
     } catch (e) {
       print('Error reading Hive: $e');
     }
-  }
-
-  // Store last activity timestamp
-  Future<void> _updateLastActivity() async {
-    try {
-      final box = await Hive.openBox('user_box');
-      await box.put('last_activity', DateTime.now().toIso8601String());
-      print('✅ Last activity updated: ${DateTime.now()}');
-    } catch (e) {
-      print('❌ Error updating last activity: $e');
-    }
-  }
-
-  // Check if user should be auto-logged out (18 hours)
-  Future<bool> shouldAutoLogout() async {
-    try {
-      final box = await Hive.openBox('user_box');
-      final lastActivityString = box.get('last_activity');
-
-      if (lastActivityString == null) {
-        // No last activity recorded, assume new session
-        await _updateLastActivity();
-        return false;
-      }
-
-      final lastActivity = DateTime.parse(lastActivityString);
-      final now = DateTime.now();
-      final difference = now.difference(lastActivity);
-
-      // 18 hours = 18 * 60 * 60 * 1000 = 64800000 milliseconds
-      final eighteenHours = Duration(hours: 18);
-
-      print('⏰ Auto-logout check:');
-      print('   Last activity: $lastActivity');
-      print('   Current time: $now');
-      print(
-        '   Difference: ${difference.inHours} hours ${difference.inMinutes.remainder(60)} minutes',
-      );
-      print('   Should logout: ${difference > eighteenHours}');
-
-      return difference > eighteenHours;
-    } catch (e) {
-      print('❌ Error checking auto-logout: $e');
-      return false;
-    }
-  }
-
-  // Update last activity on every app interaction
-  Future<void> updateUserActivity() async {
-    await _updateLastActivity();
   }
 
   // Add this to your ApiService class
@@ -1081,6 +985,15 @@ class ApiService {
     try {
       print('🔑 Activating with PIN...');
 
+      final normalizedDigits = activationCode.replaceAll(RegExp(r'[^0-9]'), '');
+      final normalizedActivationCode = normalizedDigits.length == 16
+          ? '${normalizedDigits.substring(0, 4)}-'
+                '${normalizedDigits.substring(4, 8)}-'
+                '${normalizedDigits.substring(8, 12)}-'
+                '${normalizedDigits.substring(12, 16)}'
+          : activationCode.trim();
+      final normalizedReferralCode = referralCode?.trim().toUpperCase();
+
       // FIX: Use the fixed getCurrentUser method
       final userData = await getCurrentUser();
       if (userData == null || userData['id'] == null) {
@@ -1092,12 +1005,12 @@ class ApiService {
 
       final Map<String, dynamic> requestData = {
         'user_id': userId,
-        'activation_code': activationCode,
+        'activation_code': normalizedActivationCode,
       };
 
-      if (referralCode != null && referralCode.isNotEmpty) {
-        requestData['referral_code'] = referralCode;
-        print('🎁 Referral code included: $referralCode');
+      if (normalizedReferralCode != null && normalizedReferralCode.isNotEmpty) {
+        requestData['referral_code'] = normalizedReferralCode;
+        print('🎁 Referral code included: $normalizedReferralCode');
       }
 
       final response = await http.post(
@@ -1310,57 +1223,6 @@ class ApiService {
   // ############################# PROFILE SECTION ENHANCE ############################
 
   // Add these methods to your ApiService class
-
-  // Get user activation status for rank/grade
-  Future<UserActivation?> getUserActivationStatus() async {
-    try {
-      final userData = await getCurrentUser();
-      if (userData == null || userData['id'] == null) {
-        return null;
-      }
-
-      final userId = userData['id'].toString();
-      final response = await http.get(
-        Uri.parse('${ApiEndpoints.activationStatus}?user_id=$userId'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['is_active'] == true) {
-          return UserActivation.fromJson(data);
-        }
-      }
-      return null;
-    } catch (e) {
-      print('❌ Error getting user activation status: $e');
-      return null;
-    }
-  }
-
-  // Get user referral code
-  Future<Map<String, dynamic>?> getUserReferralInfo() async {
-    try {
-      final userData = await getCurrentUser();
-      if (userData == null || userData['id'] == null) {
-        return null;
-      }
-
-      final userId = userData['id'].toString();
-      final response = await http.get(
-        Uri.parse('${ApiEndpoints.userReferral}?user_id=$userId'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      }
-      return null;
-    } catch (e) {
-      print('❌ Error getting referral info: $e');
-      return null;
-    }
-  }
 
   // Add these methods to your ApiService class
   // ####################################################################################
@@ -1594,8 +1456,6 @@ class ApiService {
 
       final userData = await getCurrentUser();
       if (userData == null) return;
-
-      final userId = userData['id'].toString();
 
       for (var course in courses) {
         try {
@@ -2038,105 +1898,6 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> submitTopicCompletion({
-    required int topicId,
-    String? selectedAnswer,
-    String? answerText,
-  }) async {
-    try {
-      print('📝 Submitting topic completion for topic ID: $topicId');
-
-      final userData = await getCurrentUser();
-      if (userData == null || userData['id'] == null) {
-        throw Exception("User not found. Please login again.");
-      }
-
-      final userId = userData['id'].toString();
-
-      // Prepare request data matching your TopicCompletionRequestSerializer
-      final Map<String, dynamic> requestData = {
-        'user_id': userId, // ADD THIS LINE
-      };
-
-      if (selectedAnswer != null && selectedAnswer.isNotEmpty) {
-        requestData['selected_answer'] = selectedAnswer;
-      } else if (answerText != null && answerText.isNotEmpty) {
-        requestData['answer_text'] = answerText;
-      } else {
-        throw Exception(
-          'Either selected_answer or answer_text must be provided',
-        );
-      }
-
-      print('📤 Sending completion data: $requestData');
-
-      // Use the existing endpoint from your Django views
-      final response = await http
-          .post(
-            Uri.parse(
-              '${ApiEndpoints.baseUrl}/api/content/topics/$topicId/submit_completion/',
-            ),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode(requestData),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      print('📥 Submit completion response: ${response.statusCode}');
-      print('📥 Response body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        print('✅ Topic completion submitted successfully');
-
-        // If correct and topic completed, update local cache
-        if (responseData['is_correct'] == true &&
-            responseData['topic_completed'] == true) {
-          await _updateLocalTopicProgress(topicId, 100, true);
-        }
-
-        return responseData;
-      } else {
-        final errorData = json.decode(response.body);
-        final error =
-            errorData['detail'] ??
-            errorData['error'] ??
-            'Failed to submit completion';
-        throw Exception('$error (Status: ${response.statusCode})');
-      }
-    } on TimeoutException {
-      print('⏰ Request timeout');
-      throw Exception('Network timeout. Please try again.');
-    } catch (e) {
-      print('❌ Error submitting topic completion: $e');
-      rethrow;
-    }
-  }
-
-  // Also update this method to handle progress percentage:
-  Future<void> _updateLocalTopicProgress(
-    int topicId,
-    int progressPercentage,
-    bool isCompleted,
-  ) async {
-    try {
-      final box = await Hive.openBox('topic_progress_cache');
-      final progressData = {
-        'topic_id': topicId,
-        'progress_percentage': progressPercentage,
-        'is_completed': isCompleted,
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      await box.put('topic_$topicId', progressData);
-      print(
-        '✅ Progress saved locally for topic $topicId: $progressPercentage%',
-      );
-
-      // Also update the in-memory cache if you have one
-      // This helps with immediate UI updates
-    } catch (e) {
-      print('⚠️ Error updating local topic progress: $e');
-    }
-  }
   // ##########################
 
   // ########################
@@ -2768,7 +2529,6 @@ class ApiService {
           try {
             final topicTitle =
                 group['topic_title']?.toString() ?? 'General Questions';
-            final topicId = group['topic_id']?.toString();
             final questionsData = (group['questions'] as List?) ?? [];
 
             final questions = <PastQuestion>[];
@@ -3046,43 +2806,6 @@ class ApiService {
       print('❌ Error searching questions: $e');
       return [];
     }
-  }
-
-  // 9. Cache past questions for offline use
-  Future<void> _cachePastQuestions({
-    required String cacheKey,
-    required List<PastQuestion> questions,
-  }) async {
-    try {
-      final box = await Hive.openBox('past_questions_cache');
-      final questionData = questions.map((q) => q.toJson()).toList();
-      await box.put(cacheKey, questionData);
-      await box.put('${cacheKey}_timestamp', DateTime.now().toIso8601String());
-      print('✅ Cached ${questions.length} past questions with key: $cacheKey');
-    } catch (e) {
-      print('⚠️ Error caching past questions: $e');
-    }
-  }
-
-  // 10. Get cached past questions
-  Future<List<PastQuestion>> _getCachedPastQuestions(String cacheKey) async {
-    try {
-      final box = await Hive.openBox('past_questions_cache');
-      final cachedData = box.get(cacheKey);
-
-      if (cachedData != null && cachedData is List) {
-        final questions = cachedData
-            .map((json) => PastQuestion.fromJson(json))
-            .toList();
-        print(
-          '📂 Loaded ${questions.length} past questions from cache: $cacheKey',
-        );
-        return questions;
-      }
-    } catch (e) {
-      print('⚠️ Error getting cached past questions: $e');
-    }
-    return [];
   }
 
   // ==================== PAST QUESTION TOPIC METHODS ====================
@@ -3832,43 +3555,6 @@ class ApiService {
     }
   }
 
-  // 9. Cache test questions for offline use
-  Future<void> _cacheTestQuestions({
-    required String cacheKey,
-    required List<TestQuestion> questions,
-  }) async {
-    try {
-      final box = await Hive.openBox('test_questions_cache');
-      final questionData = questions.map((q) => q.toJson()).toList();
-      await box.put(cacheKey, questionData);
-      await box.put('${cacheKey}_timestamp', DateTime.now().toIso8601String());
-      print('✅ Cached ${questions.length} test questions with key: $cacheKey');
-    } catch (e) {
-      print('⚠️ Error caching test questions: $e');
-    }
-  }
-
-  // 10. Get cached test questions
-  Future<List<TestQuestion>> _getCachedTestQuestions(String cacheKey) async {
-    try {
-      final box = await Hive.openBox('test_questions_cache');
-      final cachedData = box.get(cacheKey);
-
-      if (cachedData != null && cachedData is List) {
-        final questions = cachedData
-            .map((json) => TestQuestion.fromJson(json))
-            .toList();
-        print(
-          '📂 Loaded ${questions.length} text questions from cache: $cacheKey',
-        );
-        return questions;
-      }
-    } catch (e) {
-      print('⚠️ Error getting cached text questions: $e');
-    }
-    return [];
-  }
-
   // ==================== TEST QUESTION TOPIC METHODS ====================
 
   // Get topics for test questions dropdown
@@ -4484,26 +4170,6 @@ class ApiService {
   //   return headers;
   // }
 
-  // NEW METHOD: Make authenticated HTTP requests
-  Future<http.Response> _makeHttpRequest(Uri url) async {
-    try {
-      // Get auth headers with proper token
-      final headers = await _getAuthHeaders();
-
-      print('Making request to: $url');
-      print('Headers: $headers');
-
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 30));
-
-      return response;
-    } catch (e) {
-      print('HTTP request failed: $e');
-      rethrow;
-    }
-  }
-
   // NEW METHOD: Get authentication headers with token
   Future<Map<String, String>> _getAuthHeaders() async {
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -4537,33 +4203,6 @@ class ApiService {
     }
 
     return headers;
-  }
-
-  // Add these helper methods for authentication
-  Future<String?> _getToken() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      print(
-        '🔑 Token from SharedPreferences: ${token != null ? "Found" : "Not found"}',
-      );
-      return token;
-    } catch (e) {
-      print('❌ Error getting token: $e');
-      return null;
-    }
-  }
-
-  Future<int?> _getUserId() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getInt('user_id');
-      print('👤 User ID from SharedPreferences: $userId');
-      return userId;
-    } catch (e) {
-      print('❌ Error getting user ID: $e');
-      return null;
-    }
   }
 
   // #############################################################################
@@ -5013,8 +4652,7 @@ class ApiService {
           courseName: guideMap['course_name']?.toString() ?? 'General',
           university:
               guideMap['university_name']?.toString() ??
-              _extractFieldName(guideMap['university']) ??
-              'Unknown University',
+              _extractFieldName(guideMap['university']),
           department: _extractDepartmentNames(guideMap['departments']),
           level: _parseLevel(guideMap['level'] ?? guideMap['level_id']),
           semester: _parseSemester(
@@ -5053,31 +4691,6 @@ class ApiService {
 
       if (guideMap['pdf_file'] is Map && guideMap['pdf_file']['size'] != null) {
         return _formatFileSizeForDisplay(guideMap['pdf_file']['size']);
-      }
-
-      return 'Unknown size';
-    } catch (e) {
-      return 'Unknown size';
-    }
-  }
-
-  /// Get actual file size from Cloudinary
-  Future<String> _getActualFileSize(String fileUrl) async {
-    try {
-      if (fileUrl.isEmpty || !fileUrl.startsWith('http')) {
-        return 'Unknown size';
-      }
-
-      final response = await http
-          .head(Uri.parse(fileUrl), headers: {'User-Agent': 'CerenixApp/1.0'})
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final contentLength = response.headers['content-length'];
-        if (contentLength != null) {
-          final bytes = int.tryParse(contentLength) ?? 0;
-          return _formatFileSizeForDisplay(bytes);
-        }
       }
 
       return 'Unknown size';
@@ -5252,51 +4865,6 @@ class ApiService {
       print('❌ User ID endpoint failed: $e');
       return [];
     }
-  }
-
-  /// Helper to extract academic ID from multiple possible locations
-  String? _extractAcademicId(
-    dynamic profile,
-    Map<String, dynamic> userData,
-    String field,
-  ) {
-    // First, handle if profile is null
-    if (profile == null) {
-      return _extractFromUserData(userData, field);
-    }
-
-    // If profile is a Map (should be from your JSON)
-    if (profile is Map) {
-      final fieldData = profile[field];
-
-      if (fieldData is Map) {
-        // Handle Map type: {"id": 1, "name": "University"}
-        if (fieldData['id'] != null) {
-          return fieldData['id'].toString();
-        }
-      } else if (fieldData != null) {
-        // Handle if it's already an ID
-        return fieldData.toString();
-      }
-    }
-
-    // Fallback to userData
-    return _extractFromUserData(userData, field);
-  }
-
-  /// Helper to extract from userData
-  String? _extractFromUserData(Map<String, dynamic> userData, String field) {
-    final fieldData = userData[field];
-
-    if (fieldData is Map) {
-      if (fieldData['id'] != null) {
-        return fieldData['id'].toString();
-      }
-    } else if (fieldData != null) {
-      return fieldData.toString();
-    }
-
-    return null;
   }
 
   /// Extract filename from URL

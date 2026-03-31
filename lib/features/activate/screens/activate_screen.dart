@@ -3,7 +3,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import '../../../core/network/api_service.dart';
 import '../../../core/services/activation_status_service.dart';
-import '../../../core/services/event_bus.dart';
 import '../models/activation_models.dart';
 import 'payment_webview_screen.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -25,14 +24,51 @@ class _ActivationScreenState extends State<ActivationScreen> {
   List<BillingPlan> _plans = [];
   bool _isLoading = true;
   bool _isActivating = false;
+  bool _isPreparingPaymentNavigation = false;
   bool _hasInternet = true;
   bool _hasUniversityData = false; // NEW: Track university data state
   UserActivation? _currentActivation;
   Map<String, dynamic> _userData = {};
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground => _isDark ? const Color(0xFF09111F) : Colors.white;
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE5E7EB);
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : Colors.black;
+  Color get _bodyColor => _isDark ? const Color(0xFFCBD5E1) : Colors.black54;
+  Color get _mutedColor =>
+      _isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600;
+
   // Add a listener for Hive changes
   // late StreamSubscription<BoxEvent> _hiveSubscription;
   StreamSubscription<BoxEvent>? _hiveSubscription;
+
+  String _normalizeActivationCode(String value) {
+    final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digitsOnly.length != 16) {
+      return digitsOnly;
+    }
+
+    return '${digitsOnly.substring(0, 4)}-'
+        '${digitsOnly.substring(4, 8)}-'
+        '${digitsOnly.substring(8, 12)}-'
+        '${digitsOnly.substring(12, 16)}';
+  }
+
+  String _normalizeReferralCode(String value) {
+    return value.trim().toUpperCase();
+  }
+
+  void _setPaymentNavigationOverlay(bool isVisible) {
+    if (!mounted) return;
+
+    setState(() {
+      _isPreparingPaymentNavigation = isVisible;
+    });
+  }
 
   @override
   void initState() {
@@ -446,22 +482,22 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
     try {
       print('🔑 Starting PIN activation...');
+      final normalizedActivationCode = _normalizeActivationCode(
+        _activationController.text.trim(),
+      );
+      final normalizedReferralCode = _normalizeReferralCode(
+        _referralController.text,
+      );
       final response = await ApiService().activateWithPin(
-        activationCode: _activationController.text.trim(),
-        referralCode: _referralController.text.trim().isNotEmpty
-            ? _referralController.text.trim()
+        activationCode: normalizedActivationCode,
+        referralCode: normalizedReferralCode.isNotEmpty
+            ? normalizedReferralCode
             : null,
       );
 
       if (response.success) {
         print('✅ PIN activation successful');
         await ActivationStatusService.markActivated(grade: response.grade);
-        EventBusService.instance.fire(
-          ActivationStatusChangedEvent(
-            isActivated: true,
-            grade: response.grade,
-          ),
-        );
         _showSuccessDialog(
           response.message,
           response.referralApplied
@@ -474,9 +510,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
       }
     } catch (e) {
       print('❌ PIN activation error: $e');
-      _showErrorDialog(
-        'Activation failed, check your connection and try again',
-      );
+      _showErrorDialog(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) {
         setState(() {
@@ -609,6 +643,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
+          backgroundColor: _surfaceColor,
+          titleTextStyle: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: _titleColor,
+          ),
+          contentTextStyle: TextStyle(fontSize: 14, color: _bodyColor),
           title: const Text('Confirm Plan Selection'),
           content: SingleChildScrollView(
             child: Column(
@@ -625,10 +666,15 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: referralController,
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: _titleColor),
+                  decoration: InputDecoration(
                     labelText: 'Referral Code (Optional)',
-                    border: OutlineInputBorder(),
+                    labelStyle: TextStyle(color: _bodyColor),
+                    border: const OutlineInputBorder(),
                     hintText: 'Enter referral code for +10 NTY',
+                    hintStyle: TextStyle(color: _mutedColor),
+                    filled: true,
+                    fillColor: _secondarySurfaceColor,
                   ),
                   textCapitalization: TextCapitalization.characters,
                   validator: (value) {
@@ -646,7 +692,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'If you use a referral code, the referrer will get 10 NTY credit!',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: _bodyColor, fontSize: 12),
                 ),
               ],
             ),
@@ -693,9 +739,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
   void _initiatePayment(BillingPlan plan, String? referralCode) async {
     if (!mounted) return;
 
-    setState(() {
-      _isActivating = true;
-    });
+    _setPaymentNavigationOverlay(true);
+
+    var openedPaymentScreen = false;
 
     try {
       print('💳 Initiating payment for plan: ${plan.name}');
@@ -712,12 +758,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
         print('🔗 Authorization URL: ${response.authorizationUrl}');
         print('📋 Reference: ${response.reference}');
 
-        if (mounted) {
-          setState(() {
-            _isActivating = false;
-          });
-        }
-
+        openedPaymentScreen = true;
         _openPaymentWebView(response.authorizationUrl, response.reference);
       }
     } catch (e) {
@@ -732,9 +773,10 @@ class _ActivationScreenState extends State<ActivationScreen> {
         } else {
           _showErrorDialog('Payment initiation failed, check your connection');
         }
-        setState(() {
-          _isActivating = false;
-        });
+      }
+    } finally {
+      if (!openedPaymentScreen) {
+        _setPaymentNavigationOverlay(false);
       }
     }
   }
@@ -762,6 +804,8 @@ class _ActivationScreenState extends State<ActivationScreen> {
         ),
       ),
     );
+
+    _setPaymentNavigationOverlay(false);
   }
 
   void _handlePaymentSuccess(String reference) async {
@@ -783,12 +827,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
       if (response.success) {
         print('✅ Payment verification successful');
         await ActivationStatusService.markActivated(grade: response.grade);
-        EventBusService.instance.fire(
-          ActivationStatusChangedEvent(
-            isActivated: true,
-            grade: response.grade,
-          ),
-        );
 
         if (mounted) {
           _showPaymentSuccessDialog(
@@ -823,18 +861,19 @@ class _ActivationScreenState extends State<ActivationScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Row(
+        backgroundColor: _surfaceColor,
+        title: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green),
-            SizedBox(width: 8),
-            Text('Success!'),
+            const Icon(Icons.check_circle, color: Colors.green),
+            const SizedBox(width: 8),
+            Text('Success!', style: TextStyle(color: _titleColor)),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(message),
+            Text(message, style: TextStyle(color: _bodyColor)),
             if (bonusMessage != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -866,18 +905,22 @@ class _ActivationScreenState extends State<ActivationScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Row(
+        backgroundColor: _surfaceColor,
+        title: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 20),
-            SizedBox(width: 8),
-            Text('Payment Successful!', style: TextStyle(fontSize: 15)),
+            const Icon(Icons.check_circle, color: Colors.green, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Payment Successful!',
+              style: TextStyle(fontSize: 15, color: _titleColor),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(message, style: const TextStyle(fontSize: 16)),
+            Text(message, style: TextStyle(fontSize: 16, color: _bodyColor)),
             if (bonusMessage != null) ...[
               const SizedBox(height: 12),
               Text(
@@ -894,7 +937,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.green[50],
+                  color: _isDark
+                      ? Colors.green.withValues(alpha: 0.12)
+                      : Colors.green[50],
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.green),
                 ),
@@ -930,6 +975,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: _surfaceColor,
         title: const Row(
           children: [
             Icon(Icons.error, color: Colors.red),
@@ -953,7 +999,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.orange[50],
+        color: _isDark
+            ? Colors.orange.withValues(alpha: 0.14)
+            : Colors.orange[50],
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.orange),
       ),
@@ -964,19 +1012,19 @@ class _ActivationScreenState extends State<ActivationScreen> {
             children: [
               Icon(Icons.warning, color: Colors.orange[700]),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Academic Profile Required',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: _titleColor,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Please complete your academic profile setup with university information to view and purchase available billing plans.',
-            style: TextStyle(color: Colors.black54),
+            style: TextStyle(color: _bodyColor),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -1014,14 +1062,14 @@ class _ActivationScreenState extends State<ActivationScreen> {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+                color: _titleColor,
               ),
             ),
             const SizedBox(height: 12),
             Text(
               'Please check your internet connection and try again',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 14, color: _bodyColor),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
@@ -1047,15 +1095,15 @@ class _ActivationScreenState extends State<ActivationScreen> {
   }
 
   Widget _buildLoadingWidget() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
           Text(
             'Loading activation data...',
-            style: TextStyle(fontSize: 16, color: Colors.grey),
+            style: TextStyle(fontSize: 16, color: _bodyColor),
           ),
         ],
       ),
@@ -1064,72 +1112,119 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_ios_rounded,
-              color: Colors.black54,
-              size: 20,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: const Text(
-            'Activate Account',
-            style: TextStyle(
-              color: Colors.black,
-              fontWeight: FontWeight.w700,
-              fontSize: 18,
-            ),
-          ),
-          centerTitle: true,
-          // ADD: Refresh button in app bar
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.blue),
-              onPressed: _loadData,
-              tooltip: 'Refresh',
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: !_hasInternet
-              ? _buildNoInternetWidget()
-              : _isLoading
-              ? _buildLoadingWidget()
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Show university warning if no university ID
-                      if (!_hasUniversityData) ...[
-                        _buildUniversityWarning(),
-                        const SizedBox(height: 20),
-                      ],
-
-                      if (_currentActivation != null) ...[
-                        _buildActivationStatusCard(),
-                        const SizedBox(height: 20),
-                      ],
-
-                      _buildTabSelection(),
-
-                      const SizedBox(height: 30),
-
-                      if (_currentIndex == 0) ...[
-                        _buildActivationSection(),
-                      ] else ...[
-                        _buildBillingSection(),
-                      ],
-                    ],
+    return PopScope(
+      canPop: !_isPreparingPaymentNavigation,
+      child: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Stack(
+          children: [
+            Scaffold(
+              backgroundColor: _pageBackground,
+              appBar: AppBar(
+                backgroundColor: _surfaceColor,
+                elevation: 0,
+                leading: IconButton(
+                  icon: Icon(
+                    Icons.arrow_back_ios_rounded,
+                    color: _bodyColor,
+                    size: 20,
+                  ),
+                  onPressed: _isPreparingPaymentNavigation
+                      ? null
+                      : () => Navigator.pop(context),
+                ),
+                title: Text(
+                  'Activate Account',
+                  style: TextStyle(
+                    color: _titleColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
                   ),
                 ),
+                centerTitle: true,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.blue),
+                    onPressed: _isPreparingPaymentNavigation ? null : _loadData,
+                    tooltip: 'Refresh',
+                  ),
+                ],
+              ),
+              body: SafeArea(
+                child: !_hasInternet
+                    ? _buildNoInternetWidget()
+                    : _isLoading
+                    ? _buildLoadingWidget()
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!_hasUniversityData) ...[
+                              _buildUniversityWarning(),
+                              const SizedBox(height: 20),
+                            ],
+                            if (_currentActivation != null) ...[
+                              _buildActivationStatusCard(),
+                              const SizedBox(height: 20),
+                            ],
+                            _buildTabSelection(),
+                            const SizedBox(height: 30),
+                            if (_currentIndex == 0) ...[
+                              _buildActivationSection(),
+                            ] else ...[
+                              _buildBillingSection(),
+                            ],
+                          ],
+                        ),
+                      ),
+              ),
+            ),
+            if (_isPreparingPaymentNavigation)
+              Positioned.fill(child: _buildPaymentNavigationOverlay()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentNavigationOverlay() {
+    return AbsorbPointer(
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.06),
+        child: Center(
+          child: Container(
+            width: 86,
+            height: 86,
+            decoration: BoxDecoration(
+              color: (_isDark ? Colors.black : Colors.white).withValues(
+                alpha: _isDark ? 0.62 : 0.84,
+              ),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: _isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : Colors.black.withValues(alpha: 0.05),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: _isDark ? 0.28 : 0.12),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Center(
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: _isDark ? Colors.white : const Color(0xFF1D4ED8),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -1141,8 +1236,12 @@ class _ActivationScreenState extends State<ActivationScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _currentActivation!.isValid
-            ? Colors.green[50]
-            : Colors.orange[50],
+            ? (_isDark
+                  ? Colors.green.withValues(alpha: 0.14)
+                  : Colors.green[50])
+            : (_isDark
+                  ? Colors.orange.withValues(alpha: 0.14)
+                  : Colors.orange[50]),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: _currentActivation!.isValid ? Colors.green : Colors.orange,
@@ -1174,12 +1273,22 @@ class _ActivationScreenState extends State<ActivationScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Text('Grade: ${_currentActivation!.grade.toUpperCase()}'),
-          Text('University: ${_currentActivation!.universityName}'),
-          Text('Session: ${_currentActivation!.sessionName}'),
+          Text(
+            'Grade: ${_currentActivation!.grade.toUpperCase()}',
+            style: TextStyle(color: _titleColor),
+          ),
+          Text(
+            'University: ${_currentActivation!.universityName}',
+            style: TextStyle(color: _titleColor),
+          ),
+          Text(
+            'Session: ${_currentActivation!.sessionName}',
+            style: TextStyle(color: _titleColor),
+          ),
           if (_currentActivation!.duration != null)
             Text(
               'Duration: ${_currentActivation!.duration!.replaceAll('_', ' ').toUpperCase()}',
+              style: TextStyle(color: _titleColor),
             ),
           Text(
             'Status: ${_currentActivation!.isValid ? "Active" : "Inactive"}',
@@ -1197,7 +1306,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
     return Container(
       height: 50,
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: _secondarySurfaceColor,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -1220,7 +1329,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                   child: Text(
                     'Activation Code',
                     style: TextStyle(
-                      color: _currentIndex == 0 ? Colors.white : Colors.black54,
+                      color: _currentIndex == 0 ? Colors.white : _bodyColor,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
@@ -1247,7 +1356,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                   child: Text(
                     'Billing Plans',
                     style: TextStyle(
-                      color: _currentIndex == 1 ? Colors.white : Colors.black54,
+                      color: _currentIndex == 1 ? Colors.white : _bodyColor,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
@@ -1269,11 +1378,22 @@ class _ActivationScreenState extends State<ActivationScreen> {
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
-            ),
+            gradient: _isDark
+                ? LinearGradient(
+                    colors: [
+                      Colors.blue.withValues(alpha: 0.18),
+                      Colors.lightBlue.withValues(alpha: 0.12),
+                    ],
+                  )
+                : const LinearGradient(
+                    colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
+                  ),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.blue.shade100),
+            border: Border.all(
+              color: _isDark
+                  ? Colors.blue.withValues(alpha: 0.24)
+                  : Colors.blue.shade100,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1286,25 +1406,21 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     size: 22,
                   ),
                   const SizedBox(width: 10),
-                  const Text(
+                  Text(
                     'Activate with Code',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Colors.black87,
+                      color: _titleColor,
                       fontSize: 16,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Enter your 16-digit activation code to unlock full access to all Cerenix AI features. '
-                'Your code should have been provided during purchase. Each code can only be used once.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
+                'Your code should have been provided during purchase. You can type it with or without dashes. Each code can only be used once.',
+                style: TextStyle(color: _bodyColor, fontSize: 14, height: 1.5),
               ),
             ],
           ),
@@ -1317,46 +1433,53 @@ class _ActivationScreenState extends State<ActivationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Activation Code',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: _titleColor,
                   fontSize: 16,
                 ),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _activationController,
+                keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  hintText: 'XXXX-XXXX-XXXX-XXXX',
+                  hintText: 'XXXX-XXXX-XXXX-XXXX or 16 digits',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: _borderColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.blue, width: 2),
                   ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _borderColor),
+                  ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: _secondarySurfaceColor,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 16,
                   ),
+                  hintStyle: TextStyle(color: _mutedColor),
                 ),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   letterSpacing: 1.5,
                   fontWeight: FontWeight.w500,
+                  color: _titleColor,
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter activation code';
                   }
-                  final cleanCode = value.replaceAll('-', '');
+                  final cleanCode = value.replaceAll(RegExp(r'[^0-9]'), '');
                   if (cleanCode.length != 16) {
-                    return 'Code must be 16 characters';
+                    return 'Code must be 16 digits';
                   }
                   if (!RegExp(r'^[0-9]+$').hasMatch(cleanCode)) {
                     return 'Code must contain only numbers';
@@ -1365,34 +1488,41 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Referral Code (Optional)',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: _titleColor,
                   fontSize: 16,
                 ),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _referralController,
+                textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
                   hintText: 'Enter referral code for +10 NTY',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: _borderColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.green, width: 2),
                   ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _borderColor),
+                  ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: _secondarySurfaceColor,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 16,
                   ),
+                  hintStyle: TextStyle(color: _mutedColor),
                 ),
+                style: TextStyle(color: _titleColor),
               ),
               const SizedBox(height: 8),
               Text(
@@ -1450,16 +1580,16 @@ class _ActivationScreenState extends State<ActivationScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.credit_card_off, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
+            Icon(Icons.credit_card_off, size: 64, color: _mutedColor),
+            const SizedBox(height: 16),
             Text(
               'No billing plans available',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: _titleColor),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
               'Please check back later or contact support',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 14, color: _bodyColor),
             ),
           ],
         ),
@@ -1473,11 +1603,22 @@ class _ActivationScreenState extends State<ActivationScreen> {
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
-            ),
+            gradient: _isDark
+                ? LinearGradient(
+                    colors: [
+                      Colors.purple.withValues(alpha: 0.18),
+                      Colors.pink.withValues(alpha: 0.12),
+                    ],
+                  )
+                : const LinearGradient(
+                    colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
+                  ),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.purple.shade100),
+            border: Border.all(
+              color: _isDark
+                  ? Colors.purple.withValues(alpha: 0.24)
+                  : Colors.purple.shade100,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1490,25 +1631,21 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     size: 22,
                   ),
                   const SizedBox(width: 10),
-                  const Text(
+                  Text(
                     'Choose Your Plan',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Colors.black87,
+                      color: _titleColor,
                       fontSize: 16,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Select the perfect plan for your needs. All plans include full access to Cerenix AI '
                 'with premium features and dedicated support. Plans are specific to your university and current session.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
+                style: TextStyle(color: _bodyColor, fontSize: 14, height: 1.5),
               ),
             ],
           ),
@@ -1586,7 +1723,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                           plan.durationDisplay,
                           style: TextStyle(
                             fontSize: 14,
-                            color: plan.textColor.withOpacity(0.8),
+                            color: plan.textColor.withValues(alpha: 0.8),
                           ),
                         ),
                       ],

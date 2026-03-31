@@ -6,6 +6,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:markdown/markdown.dart' as md;
+import '../../../core/utils/latex_render_utils.dart';
 import '../services/chat_service.dart';
 import '../models/chat_models.dart';
 
@@ -21,11 +22,29 @@ class _AIChatScreenState extends State<AIChatScreen> {
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  Timer? _responseStreamTimer;
   bool _isLoading = false;
   bool _showSidebar = false;
   int _editingMessageIndex = -1;
   bool _hasReachedMax = false;
+  bool _isNearChatBottom = true;
+  bool _showJumpToLatest = false;
   String _currentSessionId = '';
+
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _titleColor =>
+      _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF1A1A2E);
+  Color get _bodyColor =>
+      _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
+  Color get _mutedColor =>
+      _isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0);
 
   final List<Map<String, dynamic>> _courses = [
     {
@@ -51,6 +70,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScrollChange);
     _initializeChat();
   }
 
@@ -93,6 +113,15 @@ class _AIChatScreenState extends State<AIChatScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _responseStreamTimer?.cancel();
+    _messageController.dispose();
+    _scrollController.removeListener(_handleScrollChange);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadChatHistory() async {
     try {
       final history = await ChatService.getChatHistory();
@@ -124,11 +153,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
         _isLoading = false;
 
         if (response['success']) {
-          _chatMessages.add({
-            'text': response['reply'],
-            'isUser': false,
-            'source': response['source'] ?? 'llm_model',
-          });
+          _startStreamingAssistantResponse(
+            response['reply']?.toString() ?? '',
+            source: response['source']?.toString() ?? 'llm_model',
+          );
         } else {
           if (response['error'] == 'daily_limit_exceeded') {
             _chatMessages.add({
@@ -171,16 +199,113 @@ class _AIChatScreenState extends State<AIChatScreen> {
     _getCurrentSessionId();
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+  void _startStreamingAssistantResponse(String text, {String? source}) {
+    final safeText = text.trim();
+    final messageIndex = _chatMessages.length;
+
+    setState(() {
+      _chatMessages.add({
+        'text': '',
+        'isUser': false,
+        'source': source ?? 'llm_model',
+        'isStreaming': true,
+      });
+    });
+
+    if (safeText.isEmpty) {
+      setState(() {
+        _chatMessages[messageIndex]['isStreaming'] = false;
+      });
+      return;
+    }
+
+    _responseStreamTimer?.cancel();
+    int currentLength = 0;
+    final chunkSize = safeText.length > 1200
+        ? 14
+        : safeText.length > 600
+        ? 10
+        : 6;
+
+    _responseStreamTimer = Timer.periodic(const Duration(milliseconds: 18), (
+      timer,
+    ) {
+      if (!mounted || messageIndex >= _chatMessages.length) {
+        timer.cancel();
+        return;
+      }
+
+      currentLength = (currentLength + chunkSize).clamp(0, safeText.length);
+
+      setState(() {
+        _chatMessages[messageIndex]['text'] = safeText.substring(
+          0,
+          currentLength,
         );
+        _chatMessages[messageIndex]['isStreaming'] =
+            currentLength < safeText.length;
+      });
+
+      _scrollToBottom();
+
+      if (currentLength >= safeText.length) {
+        timer.cancel();
+        _scrollToBottom(force: true, animated: true);
       }
     });
+  }
+
+  bool get _hasActiveStreamingMessage =>
+      _isLoading ||
+      _chatMessages.any((message) => message['isStreaming'] == true);
+
+  bool _isAtBottom({double threshold = 88}) {
+    if (!_scrollController.hasClients) return true;
+    final position = _scrollController.position;
+    return (position.maxScrollExtent - position.pixels) <= threshold;
+  }
+
+  void _handleScrollChange() {
+    if (!_scrollController.hasClients) return;
+
+    final isNearBottom = _isAtBottom();
+    final showJump = _hasActiveStreamingMessage && !isNearBottom;
+
+    if (isNearBottom != _isNearChatBottom || showJump != _showJumpToLatest) {
+      setState(() {
+        _isNearChatBottom = isNearBottom;
+        _showJumpToLatest = showJump;
+      });
+    }
+  }
+
+  void _scrollToBottom({bool force = false, bool animated = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        if (!force && !_isNearChatBottom) return;
+
+        final target = _scrollController.position.maxScrollExtent;
+        if ((target - _scrollController.position.pixels).abs() < 1) return;
+
+        if (animated && !_hasActiveStreamingMessage) {
+          _scrollController.animateTo(
+            target,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        } else {
+          _scrollController.jumpTo(target);
+        }
+      }
+    });
+  }
+
+  void _jumpToLatest() {
+    setState(() {
+      _isNearChatBottom = true;
+      _showJumpToLatest = false;
+    });
+    _scrollToBottom(force: true, animated: true);
   }
 
   void _copyToClipboard(String text) {
@@ -202,14 +327,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
   }
 
   void _sendEditedMessage() {
-    if (_messageController.text.trim().isNotEmpty &&
-        _editingMessageIndex != -1) {
+    final editedText = _messageController.text.trim();
+    if (editedText.isNotEmpty && _editingMessageIndex != -1) {
       setState(() {
-        _chatMessages[_editingMessageIndex]['text'] = _messageController.text;
+        _chatMessages[_editingMessageIndex]['text'] = editedText;
         _editingMessageIndex = -1;
       });
       _messageController.clear();
-      _generateAIResponse(_messageController.text);
+      _generateAIResponse(editedText);
     }
   }
 
@@ -269,18 +394,18 @@ class _AIChatScreenState extends State<AIChatScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        const Text(
+        Text(
           'Hi, I\'m Cerenix AI',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF1A1A2E),
+            color: _titleColor,
           ),
         ),
         const SizedBox(height: 8),
-        const Text(
+        Text(
           'How can I help you today?',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
+          style: TextStyle(fontSize: 16, color: _bodyColor),
         ),
         const SizedBox(height: 40),
       ],
@@ -313,8 +438,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
         style: TextStyle(color: course['color'], fontWeight: FontWeight.w500),
       ),
       avatar: Icon(course['icon'], color: course['color'], size: 18),
-      backgroundColor: course['color'].withOpacity(0.1),
-      selectedColor: course['color'].withOpacity(0.2),
+      backgroundColor: _isDark
+          ? course['color'].withOpacity(0.18)
+          : course['color'].withOpacity(0.1),
+      selectedColor: course['color'].withOpacity(_isDark ? 0.28 : 0.2),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       onSelected: (selected) {
         _addUserMessage("Help with ${course['title']}");
@@ -327,7 +454,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     return GestureDetector(
       onTap: () => setState(() => _showSidebar = false),
       child: Container(
-        color: Colors.black54,
+        color: Colors.black.withValues(alpha: 0.58),
         child: Align(
           alignment: Alignment.centerRight,
           child: GestureDetector(
@@ -335,8 +462,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
             child: Container(
               width: MediaQuery.of(context).size.width * 0.75,
               height: double.infinity,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: _surfaceColor,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(20),
                   bottomLeft: Radius.circular(20),
@@ -349,16 +476,17 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Row(
                       children: [
-                        const Text(
+                        Text(
                           'Chat History',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
+                            color: _titleColor,
                           ),
                         ),
                         const Spacer(),
                         IconButton(
-                          icon: const Icon(Icons.close_rounded),
+                          icon: Icon(Icons.close_rounded, color: _bodyColor),
                           onPressed: () => setState(() => _showSidebar = false),
                         ),
                       ],
@@ -409,14 +537,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
             'No chat history',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.grey.shade500,
+              color: _bodyColor,
               fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Start a new conversation to see it here',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade400),
+            style: TextStyle(fontSize: 14, color: _mutedColor),
             textAlign: TextAlign.center,
           ),
         ],
@@ -479,10 +607,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
           child: Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: Colors.grey,
+              color: _mutedColor,
             ),
           ),
         ),
@@ -507,6 +635,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
                       fontWeight: chat.id == _currentSessionId
                           ? FontWeight.bold
                           : FontWeight.normal,
+                      color: _titleColor,
                     ),
                   ),
                   subtitle: Text(
@@ -514,7 +643,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     style: TextStyle(
                       color: chat.id == _currentSessionId
                           ? Colors.green
-                          : Colors.grey.shade500,
+                          : _mutedColor,
                       fontSize: 12,
                     ),
                   ),
@@ -523,8 +652,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   tileColor: chat.id == _currentSessionId
-                      ? Colors.green.withOpacity(0.1)
-                      : null,
+                      ? Colors.green.withOpacity(_isDark ? 0.18 : 0.1)
+                      : _secondarySurfaceColor,
                 ),
               ),
             )
@@ -548,6 +677,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   Widget _buildMessageBubble(Map<String, dynamic> message, int index) {
     final isUser = message['isUser'];
     final isError = message['isError'] ?? false;
+    final isStreaming = message['isStreaming'] ?? false;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -587,8 +717,11 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     color: isUser
                         ? const Color(0xFF6366F1)
                         : isError
-                        ? Colors.red.shade50
-                        : Colors.grey.shade50,
+                        ? (_isDark
+                              ? Colors.red.withOpacity(0.14)
+                              : Colors.red.shade50)
+                        : _surfaceColor,
+                    border: isUser ? null : Border.all(color: _borderColor),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: isUser
@@ -600,6 +733,15 @@ class _AIChatScreenState extends State<AIChatScreen> {
                             height: 1.4,
                           ),
                         )
+                      : isStreaming
+                      ? SelectableText(
+                          '${message['text']}▋',
+                          style: TextStyle(
+                            color: _titleColor,
+                            fontSize: 15,
+                            height: 1.55,
+                          ),
+                        )
                       : _buildAIResponse(message['text'], isError),
                 ),
                 const SizedBox(height: 4),
@@ -608,28 +750,25 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     onTap: () => _editMessage(index),
                     child: Icon(
                       Icons.edit_rounded,
-                      color: Colors.grey.shade500,
+                      color: _mutedColor,
                       size: 16,
                     ),
                   ),
-                if (!isUser && !isError)
+                if (!isUser && !isError && !isStreaming)
                   Row(
                     children: [
                       GestureDetector(
                         onTap: () => _copyToClipboard(message['text']),
                         child: Icon(
                           Icons.content_copy_rounded,
-                          color: Colors.grey.shade500,
+                          color: _mutedColor,
                           size: 16,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'Copy',
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: _mutedColor, fontSize: 12),
                       ),
                     ],
                   ),
@@ -650,7 +789,11 @@ class _AIChatScreenState extends State<AIChatScreen> {
       );
     }
 
-    return MathMarkdownBody(data: text, onCopyCode: _copyToClipboard);
+    return MathMarkdownBody(
+      data: text,
+      onCopyCode: _copyToClipboard,
+      isDark: _isDark,
+    );
   }
 
   Widget _buildLoadingIndicator() {
@@ -676,7 +819,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
+              color: _surfaceColor,
+              border: Border.all(color: _borderColor),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -685,7 +829,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 const SizedBox(width: 12),
                 Text(
                   'Cerenix AI is thinking...',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                  style: TextStyle(color: _bodyColor, fontSize: 14),
                 ),
               ],
             ),
@@ -715,10 +859,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 2),
       width: 6,
       height: 6,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade600,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: _bodyColor, shape: BoxShape.circle),
     );
   }
 
@@ -726,8 +867,16 @@ class _AIChatScreenState extends State<AIChatScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        border: Border(top: BorderSide(color: Colors.orange.shade200)),
+        color: _isDark
+            ? Colors.orange.withOpacity(0.12)
+            : Colors.orange.shade50,
+        border: Border(
+          top: BorderSide(
+            color: _isDark
+                ? Colors.orange.withOpacity(0.24)
+                : Colors.orange.shade200,
+          ),
+        ),
       ),
       child: Column(
         children: [
@@ -776,8 +925,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        color: _surfaceColor,
+        border: Border(top: BorderSide(color: _borderColor)),
       ),
       child: Row(
         children: [
@@ -785,13 +934,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
             child: Container(
               constraints: BoxConstraints(maxHeight: 120),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: _secondarySurfaceColor,
                 borderRadius: BorderRadius.circular(25),
               ),
               child: TextField(
                 controller: _messageController,
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
+                style: TextStyle(color: _titleColor),
                 decoration: InputDecoration(
                   hintText: _editingMessageIndex != -1
                       ? 'Edit your message...'
@@ -801,7 +951,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     horizontal: 20,
                     vertical: 12,
                   ),
-                  hintStyle: TextStyle(color: Colors.grey.shade500),
+                  hintStyle: TextStyle(color: _mutedColor),
                 ),
                 onSubmitted: (value) => _sendMessage(),
               ),
@@ -847,22 +997,31 @@ class _AIChatScreenState extends State<AIChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: _pageBackground,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Cerenix AI',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            color: _titleColor,
+          ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1A1A2E),
+        backgroundColor: _surfaceColor,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: _titleColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+          icon: Icon(
+            Icons.arrow_back_ios_rounded,
+            size: 20,
+            color: _titleColor,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.dehaze_rounded),
+            icon: Icon(Icons.dehaze_rounded, color: _titleColor),
             onPressed: () => setState(() => _showSidebar = !_showSidebar),
           ),
         ],
@@ -901,6 +1060,57 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 _buildChatInput(),
               ],
             ),
+            if (_showJumpToLatest)
+              Positioned(
+                right: 16,
+                bottom: 88,
+                child: SafeArea(
+                  top: false,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _jumpToLatest,
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _surfaceColor.withValues(alpha: 0.96),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: _borderColor),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.14),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.arrow_downward_rounded,
+                              size: 16,
+                              color: _titleColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Latest',
+                              style: TextStyle(
+                                color: _titleColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_showSidebar) _buildSidebar(),
           ],
         ),
@@ -912,16 +1122,19 @@ class _AIChatScreenState extends State<AIChatScreen> {
 class MathMarkdownBody extends StatelessWidget {
   final String data;
   final Function(String) onCopyCode;
+  final bool isDark;
 
   const MathMarkdownBody({
     super.key,
     required this.data,
     required this.onCopyCode,
+    required this.isDark,
   });
 
   String _preprocessMath(String text) {
-    return text.replaceAllMapped(
-      RegExp(r'\$\$([^\$]+)\$\$'),
+    final normalized = LatexRenderUtils.sanitizeStoredMathTags(text);
+    return normalized.replaceAllMapped(
+      RegExp(r'\$\$([\s\S]+?)\$\$', dotAll: true),
       (match) => '\$${match.group(1)}\$',
     );
   }
@@ -929,63 +1142,84 @@ class MathMarkdownBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final processedData = _preprocessMath(data);
+    final textColor = isDark
+        ? const Color(0xFFF8FAFC)
+        : const Color(0xFF111827);
+    final bodyColor = isDark
+        ? const Color(0xFFCBD5E1)
+        : const Color(0xFF475569);
+    final surface = isDark ? const Color(0xFF162235) : Colors.grey.shade100;
+    final altSurface = isDark ? const Color(0xFF1E293B) : Colors.grey.shade200;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.grey.shade300;
+    final mathSurface = isDark
+        ? Colors.blue.withOpacity(0.12)
+        : Colors.blue.shade50;
+    final mathBorder = isDark
+        ? Colors.blue.withOpacity(0.22)
+        : Colors.blue.shade200;
+    final mathText = isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900;
 
     return MarkdownBody(
       data: processedData,
       styleSheet: MarkdownStyleSheet(
-        p: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),
-        strong: const TextStyle(
-          fontWeight: FontWeight.bold,
-          color: Colors.black87,
-        ),
-        em: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
-        h1: const TextStyle(
+        p: TextStyle(fontSize: 15, height: 1.6, color: textColor),
+        strong: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+        em: TextStyle(fontStyle: FontStyle.italic, color: textColor),
+        h1: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: textColor,
         ),
-        h2: const TextStyle(
+        h2: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: textColor,
         ),
-        h3: const TextStyle(
+        h3: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: textColor,
         ),
-        h4: const TextStyle(
+        h4: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: textColor,
         ),
         blockquote: TextStyle(
-          color: Colors.grey.shade700,
+          color: bodyColor,
           fontStyle: FontStyle.italic,
-          backgroundColor: Colors.grey.shade100,
+          backgroundColor: surface,
         ),
         code: TextStyle(
-          backgroundColor: Colors.grey.shade200,
-          color: Colors.black87,
+          backgroundColor: altSurface,
+          color: textColor,
           fontFamily: 'Monospace',
           fontSize: 14,
         ),
         codeblockPadding: const EdgeInsets.all(16),
         codeblockDecoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: surface,
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColor),
         ),
-        listBullet: const TextStyle(fontSize: 15, color: Colors.black87),
-        tableBody: const TextStyle(fontSize: 15, color: Colors.black87),
-        tableHead: const TextStyle(
+        listBullet: TextStyle(fontSize: 15, color: textColor),
+        tableBody: TextStyle(fontSize: 15, color: textColor),
+        tableHead: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: textColor,
         ),
       ),
       builders: {
-        'code': CodeElementBuilder(onCopy: onCopyCode),
-        'math': MathElementBuilder(),
+        'code': CodeElementBuilder(onCopy: onCopyCode, isDark: isDark),
+        'math': MathElementBuilder(
+          isDark: isDark,
+          mathSurface: mathSurface,
+          mathBorder: mathBorder,
+          mathText: mathText,
+        ),
       },
       onTapLink: (text, href, title) {
         if (href != null) {
@@ -1011,8 +1245,9 @@ class MathMarkdownBody extends StatelessWidget {
 
 class CodeElementBuilder extends MarkdownElementBuilder {
   final Function(String) onCopy;
+  final bool isDark;
 
-  CodeElementBuilder({required this.onCopy});
+  CodeElementBuilder({required this.onCopy, required this.isDark});
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
@@ -1026,9 +1261,13 @@ class CodeElementBuilder extends MarkdownElementBuilder {
           ? BoxConstraints(maxHeight: 300)
           : BoxConstraints(),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: isDark ? const Color(0xFF162235) : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.shade300,
+        ),
       ),
       child: Column(
         mainAxisSize: isMultiLine ? MainAxisSize.min : MainAxisSize.max,
@@ -1037,19 +1276,23 @@ class CodeElementBuilder extends MarkdownElementBuilder {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade200,
+              color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade200,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(8),
                 topRight: Radius.circular(8),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   'Code',
                   style: TextStyle(
-                    color: Colors.grey.shade700,
+                    color: isDark
+                        ? const Color(0xFFCBD5E1)
+                        : Colors.grey.shade700,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1057,17 +1300,22 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                 GestureDetector(
                   onTap: () => onCopy(codeContent),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.content_copy,
                         size: 14,
-                        color: Colors.grey.shade700,
+                        color: isDark
+                            ? const Color(0xFFCBD5E1)
+                            : Colors.grey.shade700,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         'Copy',
                         style: TextStyle(
-                          color: Colors.grey.shade700,
+                          color: isDark
+                              ? const Color(0xFFCBD5E1)
+                              : Colors.grey.shade700,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1089,7 +1337,9 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                       style: preferredStyle?.copyWith(
                         fontFamily: 'Monospace',
                         fontSize: 14,
-                        color: Colors.black87,
+                        color: isDark
+                            ? const Color(0xFFF8FAFC)
+                            : Colors.black87,
                       ),
                     ),
                   ),
@@ -1104,7 +1354,7 @@ class CodeElementBuilder extends MarkdownElementBuilder {
                 style: preferredStyle?.copyWith(
                   fontFamily: 'Monospace',
                   fontSize: 14,
-                  color: Colors.black87,
+                  color: isDark ? const Color(0xFFF8FAFC) : Colors.black87,
                 ),
               ),
             ),
@@ -1115,6 +1365,18 @@ class CodeElementBuilder extends MarkdownElementBuilder {
 }
 
 class MathElementBuilder extends MarkdownElementBuilder {
+  final bool isDark;
+  final Color mathSurface;
+  final Color mathBorder;
+  final Color mathText;
+
+  MathElementBuilder({
+    required this.isDark,
+    required this.mathSurface,
+    required this.mathBorder,
+    required this.mathText,
+  });
+
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     String mathContent = element.textContent;
@@ -1127,9 +1389,9 @@ class MathElementBuilder extends MarkdownElementBuilder {
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.blue.shade50,
+          color: mathSurface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.blue.shade200),
+          border: Border.all(color: mathBorder),
         ),
         child: needsWrapping
             ? _buildWrappedMath(mathContent)
@@ -1148,7 +1410,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           fit: BoxFit.scaleDown,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(fontSize: 18, color: Colors.blue.shade900),
+            textStyle: TextStyle(fontSize: 18, color: mathText),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, false);
             },
@@ -1167,7 +1429,7 @@ class MathElementBuilder extends MarkdownElementBuilder {
           scrollDirection: Axis.horizontal,
           child: Math.tex(
             mathContent,
-            textStyle: TextStyle(fontSize: 16, color: Colors.blue.shade900),
+            textStyle: TextStyle(fontSize: 16, color: mathText),
             onErrorFallback: (FlutterMathException e) {
               return _buildMathFallback(mathContent, true);
             },
@@ -1181,9 +1443,11 @@ class MathElementBuilder extends MarkdownElementBuilder {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
+        color: isDark ? Colors.red.withOpacity(0.14) : Colors.red.shade50,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.red.shade200),
+        border: Border.all(
+          color: isDark ? Colors.red.withOpacity(0.22) : Colors.red.shade200,
+        ),
       ),
       child: isWrapped
           ? ConstrainedBox(

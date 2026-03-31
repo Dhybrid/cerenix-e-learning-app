@@ -22,6 +22,16 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
 
   late Box userBox;
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground => _isDark ? const Color(0xFF09111F) : Colors.white;
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE5E7EB);
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : Colors.black87;
+  Color get _bodyColor => _isDark ? const Color(0xFFCBD5E1) : Colors.black54;
+
   @override
   void initState() {
     super.initState();
@@ -395,18 +405,15 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
+      return Scaffold(
+        backgroundColor: _pageBackground,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text(
-                'Loading CGPA data...',
-                style: TextStyle(color: Colors.black54),
-              ),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text('Loading CGPA data...', style: TextStyle(color: _bodyColor)),
             ],
           ),
         ),
@@ -415,7 +422,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
 
     if (_currentUserId == null) {
       return Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: _pageBackground,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -440,14 +447,14 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
 
     if (_hasError) {
       return Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: _pageBackground,
         appBar: AppBar(
-          backgroundColor: Colors.white,
+          backgroundColor: _surfaceColor,
           elevation: 0,
-          title: const Text(
+          title: Text(
             'CGPA Calculator',
             style: TextStyle(
-              color: Colors.black,
+              color: _titleColor,
               fontWeight: FontWeight.w700,
               fontSize: 20,
             ),
@@ -474,7 +481,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                 child: Text(
                   _errorMessage,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.black54, fontSize: 14),
+                  style: TextStyle(color: _bodyColor, fontSize: 14),
                 ),
               ),
               const SizedBox(height: 30),
@@ -495,14 +502,14 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _pageBackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: _surfaceColor,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'CGPA Calculator',
           style: TextStyle(
-            color: Colors.black,
+            color: _titleColor,
             fontWeight: FontWeight.w700,
             fontSize: 20,
           ),
@@ -532,11 +539,16 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                   margin: const EdgeInsets.only(top: 20, bottom: 10),
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: _isDark
+                        ? Colors.blue.withValues(alpha: 0.14)
+                        : Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _borderColor),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(
+                          alpha: _isDark ? 0.2 : 0.05,
+                        ),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -555,10 +567,10 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                       const SizedBox(height: 8),
                       Text(
                         _overallCGPA.toStringAsFixed(2),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 48,
                           fontWeight: FontWeight.w800,
-                          color: Colors.black87,
+                          color: _titleColor,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -575,23 +587,20 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                           padding: const EdgeInsets.only(top: 12),
                           child: Text(
                             '${_levels.length} level${_levels.length > 1 ? 's' : ''} calculated',
-                            style: const TextStyle(
-                              color: Colors.black54,
-                              fontSize: 12,
-                            ),
+                            style: TextStyle(color: _bodyColor, fontSize: 12),
                           ),
                         ),
                     ],
                   ),
                 ),
 
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   child: Text(
                     'Add your courses and grades to calculate your CGPA automatically.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.black54,
+                      color: _bodyColor,
                       fontSize: 14,
                       height: 1.5,
                     ),
@@ -695,12 +704,12 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _surfaceColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: _borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: _isDark ? 0.16 : 0.03),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -716,10 +725,10 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                   children: [
                     Text(
                       'Level ${level.level}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: Colors.black87,
+                        color: _titleColor,
                       ),
                     ),
                     Row(
@@ -790,7 +799,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                 const SizedBox(height: 12),
                 Text(
                   '$totalCourses course${totalCourses != 1 ? 's' : ''} total',
-                  style: const TextStyle(color: Colors.black54, fontSize: 14),
+                  style: TextStyle(color: _bodyColor, fontSize: 14),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -819,10 +828,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
   Widget _buildSemesterInfo(String title, double gpa, int courseCount) {
     return Column(
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 14, color: Colors.black54),
-        ),
+        Text(title, style: TextStyle(fontSize: 14, color: _bodyColor)),
         const SizedBox(height: 4),
         Text(
           gpa.toStringAsFixed(2),
@@ -835,7 +841,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
         const SizedBox(height: 2),
         Text(
           '$courseCount course${courseCount != 1 ? 's' : ''}',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: TextStyle(fontSize: 12, color: _bodyColor),
         ),
       ],
     );
@@ -974,6 +980,16 @@ class _SemesterScreenState extends State<SemesterScreen> {
   late List<TextEditingController> _firstSemesterUnitControllers;
   late List<TextEditingController> _secondSemesterCodeControllers;
   late List<TextEditingController> _secondSemesterUnitControllers;
+
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground => _isDark ? const Color(0xFF09111F) : Colors.white;
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF8FAFC);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE5E7EB);
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : Colors.black87;
+  Color get _bodyColor => _isDark ? const Color(0xFFCBD5E1) : Colors.black54;
 
   @override
   void initState() {
@@ -1224,20 +1240,17 @@ class _SemesterScreenState extends State<SemesterScreen> {
     final totalUnits = validCourses.fold(0, (sum, course) => sum + course.unit);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _pageBackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: _surfaceColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: _titleColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Level ${widget.level}',
-          style: const TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(color: _titleColor, fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
@@ -1260,35 +1273,29 @@ class _SemesterScreenState extends State<SemesterScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
+                  color: _secondarySurfaceColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
+                  border: Border.all(color: _borderColor),
                 ),
                 child: Column(
                   children: [
                     Text(
                       '${_isFirstSemester ? 'First' : 'Second'} Semester',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.black54,
-                      ),
+                      style: TextStyle(fontSize: 16, color: _bodyColor),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       currentGPA.toStringAsFixed(2),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.w800,
-                        color: Colors.black87,
+                        color: _titleColor,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '$totalUnits unit${totalUnits != 1 ? 's' : ''} • ${validCourses.length} course${validCourses.length != 1 ? 's' : ''}',
-                      style: const TextStyle(
-                        color: Colors.black45,
-                        fontSize: 14,
-                      ),
+                      style: TextStyle(color: _bodyColor, fontSize: 14),
                     ),
                   ],
                 ),
@@ -1299,7 +1306,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
               // Semester Toggle
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
+                  color: _secondarySurfaceColor,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -1324,7 +1331,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
                               style: TextStyle(
                                 color: _isFirstSemester
                                     ? Colors.white
-                                    : Colors.black54,
+                                    : _bodyColor,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1352,7 +1359,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
                               style: TextStyle(
                                 color: !_isFirstSemester
                                     ? Colors.white
-                                    : Colors.black54,
+                                    : _bodyColor,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),

@@ -12,13 +12,17 @@ import 'dart:async';
 import '../../../core/constants/endpoints.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
+import '../../cereva/utils/ai_response_utils.dart';
 
 // Ensure you have a markdown plugin that supports LaTeX rendering
 // or inform the user that basic markdown (like **bold**) will be supported.
 // For example, using flutter_markdown_latex would be necessary for full formula support.
 
 class AIBoardScreen extends StatefulWidget {
-  const AIBoardScreen({super.key});
+  final String? initialTopic;
+  final String? initialPrompt;
+
+  const AIBoardScreen({super.key, this.initialTopic, this.initialPrompt});
 
   @override
   State<AIBoardScreen> createState() => _AIBoardScreenState();
@@ -106,9 +110,23 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       setState(() => _state = VoiceChatState.ready);
       _panelContent = 'Ready to assist you!';
 
-      // Speak greeting
-      await Future.delayed(const Duration(milliseconds: 500));
-      _speakGreeting();
+      final initialPrompt = widget.initialPrompt?.trim();
+      if (initialPrompt != null && initialPrompt.isNotEmpty) {
+        final topicLabel = widget.initialTopic?.trim();
+        setState(() {
+          _panelContent = topicLabel != null && topicLabel.isNotEmpty
+              ? 'Preparing the board for $topicLabel...'
+              : 'Preparing the board...';
+          _latestAiReply = '';
+          _currentSpokenText = '';
+        });
+
+        await Future.delayed(const Duration(milliseconds: 250));
+        await _processUserMessage(initialPrompt);
+      } else {
+        await Future.delayed(const Duration(milliseconds: 500));
+        _speakGreeting();
+      }
     } catch (e) {
       print('Initialization error: $e');
       setState(() {
@@ -132,7 +150,9 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
 
       final safeStart = start.clamp(0, _activeSpeechChunk.length);
       final safeEnd = end.clamp(safeStart, _activeSpeechChunk.length);
-      final currentSlice = _activeSpeechChunk.substring(safeStart, safeEnd).trim();
+      final currentSlice = _activeSpeechChunk
+          .substring(safeStart, safeEnd)
+          .trim();
 
       if (currentSlice.isNotEmpty) {
         setState(() {
@@ -182,7 +202,8 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
   void _speakGreeting() async {
     if (_state != VoiceChatState.ready) return;
 
-    final greeting = "Hello! I'm Cerava, your learning assistant. How can I help you today?";
+    final greeting =
+        "Hello! I'm Cerava, your learning assistant. How can I help you today?";
 
     setState(() {
       _panelContent = greeting;
@@ -199,7 +220,7 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
     await _configureTts();
 
     if (text.isEmpty) return;
-    
+
     // Stop any currently speaking text immediately
     if (_state == VoiceChatState.aiSpeaking) {
       await _tts.stop();
@@ -207,10 +228,10 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
 
     final cleanText = _cleanTextForTTS(text);
     if (cleanText.isEmpty) {
-       if (mounted) {
-         setState(() => _state = VoiceChatState.ready);
-       }
-       return;
+      if (mounted) {
+        setState(() => _state = VoiceChatState.ready);
+      }
+      return;
     }
 
     if (mounted) {
@@ -226,7 +247,7 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
   Future<void> _speakLongText(String text) async {
     final RegExp sentenceSplitter = RegExp(r'(?<=[.!?])\s+(?=[A-Z0-9]|\s|$)');
     List<String> rawChunks = text.split(sentenceSplitter);
-    
+
     List<String> finalChunks = [];
     String currentChunk = '';
 
@@ -240,7 +261,9 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
         }
         currentChunk = trimmedChunk;
       } else {
-        currentChunk = (currentChunk.isEmpty ? trimmedChunk : '$currentChunk $trimmedChunk');
+        currentChunk = (currentChunk.isEmpty
+            ? trimmedChunk
+            : '$currentChunk $trimmedChunk');
       }
     }
 
@@ -285,43 +308,15 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
 
   // UPDATED: Removed the hard text length limit
   String _cleanTextForTTS(String text) {
-    String cleaned = text;
-    cleaned = cleaned.replaceAll(RegExp(r'```[\s\S]*?```'), ' Here is a code example. ');
-    cleaned = cleaned.replaceAll(RegExp(r'!\[[^\]]*\]\([^)]+\)'), ' The illustration is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), ' The illustration is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'`([^`]+)`'), ' code ');
-    cleaned = cleaned.replaceAll(RegExp(r'\$\$[\s\S]*?\$\$'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'#+\s*'), '');
-    cleaned = cleaned.replaceAll(RegExp(r'\*\*|\*|__|_'), ''); 
-    cleaned = cleaned.replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1');
-    cleaned = cleaned.replaceAll(RegExp(r'\$[^$]*?\$'), ' The formula is shown on your screen. '); 
-    cleaned = cleaned.replaceAll(RegExp(r'\\\((.*?)\\\)'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'\\\[(.*?)\\\]'), ' The formula is shown on your screen. ');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]', unicode: true), '');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{2600}-\u{27BF}]', unicode: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'[|•●■◆★☆◦▪▶►]+'), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'[{}<>]+'), ' ');
-    cleaned = cleaned.replaceAll(
-      RegExp(
-        r'\b(?:diagram|illustration|figure|image|chart|graph)\b\s*:?',
-        caseSensitive: false,
-      ),
-      ' visual ',
-    );
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*[*-]\s+', multiLine: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*\d+\.\s+', multiLine: true), ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'\n{2,}'), '. ');
-    cleaned = cleaned.replaceAll('\n', ' ');
-    cleaned = cleaned.replaceAll(';', '. ');
-    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ');
-
-    return cleaned.trim();
+    return AiResponseUtils.sanitizeForSpeech(text);
   }
 
   void _ensureListeningStaysAlive() {
     _silenceTimer?.cancel();
     _silenceTimer = Timer(const Duration(seconds: 4), () {
-      if (!_isContinuousListening || _userStopped || _state != VoiceChatState.listening) {
+      if (!_isContinuousListening ||
+          _userStopped ||
+          _state != VoiceChatState.listening) {
         return;
       }
 
@@ -346,7 +341,8 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       _userStopped = false;
       _speechRestartCount = 0;
       // Show user is listening with user's speech
-      _panelContent = '🎤 Listening continuously...\n\nSpeak now. I will keep listening.\n\nClick red button when done.';
+      _panelContent =
+          '🎤 Listening continuously...\n\nSpeak now. I will keep listening.\n\nClick red button when done.';
       _currentSpokenText = '';
     });
 
@@ -357,7 +353,9 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
   void _startSpeechRecognition() async {
     if (!_isContinuousListening || _userStopped) return;
 
-    print('Starting speech recognition... (attempt ${_speechRestartCount + 1})');
+    print(
+      'Starting speech recognition... (attempt ${_speechRestartCount + 1})',
+    );
 
     try {
       if (_speech.isListening) {
@@ -433,7 +431,9 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       return;
     }
 
-    print('Scheduling restart of speech recognition (attempt $_speechRestartCount)...');
+    print(
+      'Scheduling restart of speech recognition (attempt $_speechRestartCount)...',
+    );
 
     _restartTimer?.cancel();
     _restartTimer = Timer(const Duration(milliseconds: 120), () async {
@@ -531,25 +531,24 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
               'is_voice': true,
             }),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(AiResponseUtils.requestTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final reply = data['reply'] ?? "I didn't get a response.";
 
-        // Show AI response in panel (clean emojis)
-        final cleanReply = _removeEmojis(reply);
         setState(() {
-          _panelContent = cleanReply;
+          _panelContent = reply;
           _conversationHistory += 'AI: $reply\n\n';
-          _latestAiReply = cleanReply;
-          _currentSpokenText = cleanReply;
-          _state = VoiceChatState.aiSpeaking; // Set state before speaking starts
+          _latestAiReply = reply;
+          _currentSpokenText = '';
+          _state =
+              VoiceChatState.aiSpeaking; // Set state before speaking starts
         });
 
         _scrollToBottom();
         // The _speakText function now handles the chunking for long replies
-        await _speakText(reply); 
+        await _speakText(reply);
       } else if (response.statusCode == 429) {
         final errorData = json.decode(response.body);
         final errorMsg = errorData['message'] ?? 'Daily limit reached';
@@ -561,17 +560,6 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       print('Process message error: $e');
       _handleError('Network error. Please check your connection.');
     }
-  }
-
-  String _removeEmojis(String text) {
-    // Simple emoji removal - avoids complex regex
-    String cleaned = text;
-    // Remove emoji-like characters
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F600}-\u{1F64F}]', unicode: true), '');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F300}-\u{1F5FF}]', unicode: true), '');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F680}-\u{1F6FF}]', unicode: true), '');
-    cleaned = cleaned.replaceAll(RegExp(r'[\u{1F1E0}-\u{1F1FF}]', unicode: true), '');
-    return cleaned.trim();
   }
 
   void _handleListeningError() {
@@ -647,7 +635,10 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+                        icon: const Icon(
+                          Icons.arrow_back_ios_rounded,
+                          size: 20,
+                        ),
                         color: Colors.white,
                         onPressed: () => Navigator.pop(context),
                         style: IconButton.styleFrom(
@@ -760,7 +751,9 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                             physics: const BouncingScrollPhysics(),
                             child: Padding(
                               padding: const EdgeInsets.all(16),
-                              child: _buildLessonContent(_getVisibleBoardText()),
+                              child: _buildLessonContent(
+                                _getVisibleBoardText(),
+                              ),
                             ),
                           ),
                         ),
@@ -794,11 +787,8 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // Animation Section
-                      SizedBox(
-                        height: 30,
-                        child: _buildAnimationDisplay(),
-                      ),
-                      
+                      SizedBox(height: 30, child: _buildAnimationDisplay()),
+
                       // Mic Button Section - Compact layout
                       Column(
                         children: [
@@ -810,9 +800,11 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                                 onTap: () {
                                   if (_state == VoiceChatState.listening) {
                                     _stopContinuousListening();
-                                  } else if (_state == VoiceChatState.ready || _state == VoiceChatState.error) {
+                                  } else if (_state == VoiceChatState.ready ||
+                                      _state == VoiceChatState.error) {
                                     _startContinuousListening();
-                                  } else if (_state == VoiceChatState.aiSpeaking) {
+                                  } else if (_state ==
+                                      VoiceChatState.aiSpeaking) {
                                     _tts.stop();
                                     _startContinuousListening();
                                   }
@@ -826,14 +818,18 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                                     gradient: _getMicButtonGradient(),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: _getMicButtonColor().withOpacity(0.8),
+                                        color: _getMicButtonColor().withOpacity(
+                                          0.8,
+                                        ),
                                         blurRadius: 10,
                                         spreadRadius: 2,
                                       ),
                                     ],
                                   ),
                                   child: Icon(
-                                    _state == VoiceChatState.listening ? Icons.stop_rounded : Icons.mic_rounded,
+                                    _state == VoiceChatState.listening
+                                        ? Icons.stop_rounded
+                                        : Icons.mic_rounded,
                                     color: Colors.white,
                                     size: 24,
                                   ),
@@ -841,15 +837,15 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
                               ),
                             ),
                           ),
-                          
+
                           const SizedBox(height: 6),
-                          
+
                           Text(
                             _getMicButtonText(),
                             style: TextStyle(
-                              color: _state == VoiceChatState.listening 
-                                ? const Color(0xFFEF4444) 
-                                : Colors.white70,
+                              color: _state == VoiceChatState.listening
+                                  ? const Color(0xFFEF4444)
+                                  : Colors.white70,
                               fontSize: 10,
                               fontWeight: FontWeight.w500,
                             ),
@@ -926,8 +922,12 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       case VoiceChatState.ready:
       case VoiceChatState.error:
         return Icon(
-          _state == VoiceChatState.error ? Icons.error_rounded : Icons.assistant_rounded,
-          color: _state == VoiceChatState.error ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+          _state == VoiceChatState.error
+              ? Icons.error_rounded
+              : Icons.assistant_rounded,
+          color: _state == VoiceChatState.error
+              ? const Color(0xFFEF4444)
+              : const Color(0xFF10B981),
           size: 20,
         );
       case VoiceChatState.initializing:
@@ -943,9 +943,7 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
   }
 
   String _getVisibleBoardText() {
-    return _currentSpokenText.isNotEmpty
-        ? _currentSpokenText
-        : (_latestAiReply.isNotEmpty ? _latestAiReply : _panelContent);
+    return _latestAiReply.isNotEmpty ? _latestAiReply : _panelContent;
   }
 
   Widget _buildLessonContent(String text) {
@@ -1051,10 +1049,7 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
           scrollDirection: Axis.horizontal,
           child: Math.tex(
             cleanMath,
-            textStyle: const TextStyle(
-              fontSize: 18,
-              color: Colors.white,
-            ),
+            textStyle: const TextStyle(fontSize: 18, color: Colors.white),
             onErrorFallback: (FlutterMathException e) {
               return SelectableText(
                 mathContent,
@@ -1093,15 +1088,17 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
               color: _state == VoiceChatState.aiSpeaking
                   ? const Color(0xFF10B981)
                   : (_state == VoiceChatState.listening
-                      ? const Color(0xFFEF4444)
-                      : const Color(0xFF60A5FA)),
+                        ? const Color(0xFFEF4444)
+                        : const Color(0xFF60A5FA)),
               shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              visibleText.isEmpty ? 'Waiting for the lesson to begin.' : visibleText,
+              visibleText.isEmpty
+                  ? 'Waiting for the lesson to begin.'
+                  : visibleText,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -1346,6 +1343,10 @@ class _AIBoardScreenState extends State<AIBoardScreen> {
       case VoiceChatState.aiSpeaking:
         return 'AI is explaining...';
       case VoiceChatState.ready:
+        if (widget.initialTopic != null &&
+            widget.initialTopic!.trim().isNotEmpty) {
+          return 'Ready to explain ${widget.initialTopic!.trim()}';
+        }
         return 'Ready for questions';
       case VoiceChatState.error:
         return 'Error occurred';
