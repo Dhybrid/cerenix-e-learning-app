@@ -263,12 +263,6 @@ class _LectureScreenState extends State<LectureScreen> {
         // Online mode - load from API
         print('🌐 Loading topics from API...');
         topics = await _apiService.getTopics(outlineId: selectedOutlineId);
-        if (_isCourseDownloaded && topics.isNotEmpty) {
-          topics = await _applyDownloadedMediaToTopics(
-            _getCourseId(widget.course),
-            topics,
-          );
-        }
       }
 
       if (topics.isNotEmpty) {
@@ -568,7 +562,7 @@ class _LectureScreenState extends State<LectureScreen> {
     if (imagePath == null || imagePath.isEmpty) return null;
 
     // Check if we have a local image path in offline storage
-    if (_isOfflineMode || _isCourseDownloaded) {
+    if (_isOfflineMode) {
       try {
         final courseId = _getCourseId(widget.course);
         final offlineBox = Hive.box('offline_courses');
@@ -2448,7 +2442,7 @@ class _LectureScreenState extends State<LectureScreen> {
   // }
 
   Widget _buildFormattedContent(String content) {
-    // Convert CKEditor HTML to clean markdown
+    // Keep the existing lecture parser so current lecture formatting stays the same.
     final cleanContent = _convertCkEditorToMarkdown(
       LatexRenderUtils.sanitizeStoredMathTags(content),
     );
@@ -4326,17 +4320,13 @@ class _LectureScreenState extends State<LectureScreen> {
 
       // Regular paragraphs
       if (trimmedLine.isNotEmpty) {
-        // Check if this is the start of a paragraph
-        if (i == 0 || lines[i - 1].trim().isEmpty) {
-          final paragraph = _extractParagraph(lines, i);
-          // Check if paragraph contains inline math
-          if (_containsInlineMath(paragraph)) {
-            widgets.add(_buildInlineMathText(paragraph));
-          } else {
-            widgets.add(_buildLectureParagraph(paragraph));
-          }
-          i += paragraph.split('\n').length - 1;
+        final paragraph = _extractParagraph(lines, i);
+        if (_containsInlineMath(paragraph)) {
+          widgets.add(_buildInlineMathText(paragraph));
+        } else {
+          widgets.add(_buildLectureParagraph(paragraph));
         }
+        i += paragraph.split('\n').length - 1;
       } else {
         // Add spacing for empty lines
         if (i > 0 && lines[i - 1].trim().isNotEmpty) {
