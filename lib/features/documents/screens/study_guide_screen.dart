@@ -43,6 +43,29 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
   String _activationStatusMessage = 'Checking activation status...';
   // ========== END ACTIVATION STATE ==========
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get _pageBackground =>
+      _isDark ? const Color(0xFF09111F) : const Color(0xFFF8FAFC);
+  Color get _surfaceColor => _isDark ? const Color(0xFF101A2B) : Colors.white;
+  Color get _secondarySurfaceColor =>
+      _isDark ? const Color(0xFF162235) : const Color(0xFFF1F5F9);
+  Color get _borderColor =>
+      _isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0);
+  Color get _titleColor => _isDark ? const Color(0xFFF8FAFC) : const Color(0xFF0F172A);
+  Color get _bodyColor => _isDark ? const Color(0xFFCBD5E1) : const Color(0xFF64748B);
+  Color get _infoSurface =>
+      _isDark ? const Color(0xFF0F2744) : Colors.blue.shade50;
+  Color get _infoText =>
+      _isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade700;
+  Color get _infoStrongText =>
+      _isDark ? const Color(0xFFDBEAFE) : Colors.blue.shade900;
+  Color get _warningSurface =>
+      _isDark ? const Color(0xFF2A1B0B) : Colors.orange.shade50;
+  Color get _warningBorder =>
+      _isDark ? const Color(0xFF9A5C12) : Colors.orange.shade200;
+  Color get _warningText =>
+      _isDark ? const Color(0xFFFFD7A3) : Colors.orange.shade800;
+
   @override
   void initState() {
     super.initState();
@@ -128,21 +151,21 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.orange.shade50,
+          color: _warningSurface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.orange.shade200, width: 1.5),
+          border: Border.all(color: _warningBorder, width: 1.5),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.orange.shade100,
+                color: Colors.orange.withValues(alpha: _isDark ? 0.18 : 0.16),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.lock_outline_rounded,
-                color: Colors.orange.shade600,
+                color: _warningText,
                 size: 22,
               ),
             ),
@@ -156,7 +179,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.orange.shade800,
+                      color: _warningText,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -164,7 +187,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     'Documents are visible but cannot be opened or downloaded. Tap to activate your account.',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.orange.shade700,
+                      color: _warningText.withValues(alpha: 0.9),
                       height: 1.3,
                     ),
                   ),
@@ -173,7 +196,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
             ),
             Icon(
               Icons.arrow_forward_ios_rounded,
-              color: Colors.orange.shade600,
+              color: _warningText,
               size: 18,
             ),
           ],
@@ -584,16 +607,16 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
           children: [
             Text(
               'You need to activate your account to access documents.',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              style: TextStyle(fontSize: 14, color: _bodyColor),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
+                color: _warningSurface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.shade200),
+                border: Border.all(color: _warningBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -603,7 +626,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                       Icon(
                         Icons.remove_red_eye,
                         size: 16,
-                        color: Colors.orange.shade700,
+                        color: _warningText,
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -611,7 +634,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: Colors.orange.shade800,
+                          color: _warningText,
                         ),
                       ),
                     ],
@@ -619,14 +642,14 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.lock, size: 16, color: Colors.orange.shade700),
+                      Icon(Icons.lock, size: 16, color: _warningText),
                       const SizedBox(width: 8),
                       Text(
                         'Cannot open or download',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: Colors.orange.shade800,
+                          color: _warningText,
                         ),
                       ),
                     ],
@@ -745,7 +768,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _isDark ? const Color(0xFF050B14) : Colors.black,
       body: SafeArea(
         child: Column(
           children: [
@@ -756,9 +779,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
             Expanded(
               child: Container(
                 width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
+                decoration: BoxDecoration(
+                  color: _pageBackground,
+                  borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(30),
                     topRight: Radius.circular(30),
                   ),
@@ -807,7 +830,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
         : widget.semester;
 
     return Container(
-      color: Colors.black,
+      color: _isDark ? const Color(0xFF050B14) : Colors.black,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Row(
         children: [
@@ -918,13 +941,19 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: _infoSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100),
+        border: Border.all(
+          color: _isDark ? const Color(0xFF1D4ED8) : Colors.blue.shade100,
+        ),
       ),
       child: Row(
         children: [
-          Icon(Icons.info, color: Colors.blue.shade600, size: 24),
+          Icon(
+            Icons.info,
+            color: _isDark ? const Color(0xFF93C5FD) : Colors.blue.shade600,
+            size: 24,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -933,7 +962,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                 Text(
                   'Study Materials',
                   style: TextStyle(
-                    color: Colors.blue.shade800,
+                    color: _infoStrongText,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -943,7 +972,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                   RichText(
                     text: TextSpan(
                       style: TextStyle(
-                        color: Colors.blue.shade700,
+                        color: _infoText,
                         fontSize: 12,
                       ),
                       children: [
@@ -956,7 +985,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                           text: 'app-protected',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
+                            color: _infoStrongText,
                           ),
                         ),
                         const TextSpan(
@@ -969,7 +998,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                   RichText(
                     text: TextSpan(
                       style: TextStyle(
-                        color: Colors.blue.shade700,
+                        color: _infoText,
                         fontSize: 12,
                       ),
                       children: [
@@ -978,7 +1007,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                           text: 'visible',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
+                            color: _infoStrongText,
                           ),
                         ),
                         const TextSpan(
@@ -1005,14 +1034,14 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
         children: [
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Loading Study Materials...',
-            style: TextStyle(fontSize: 16, color: Colors.grey),
+            style: TextStyle(fontSize: 16, color: _bodyColor),
           ),
           const SizedBox(height: 8),
           Text(
             'Fetching guides for ${_userDepartment.isNotEmpty ? _userDepartment : widget.department}',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: _bodyColor),
             textAlign: TextAlign.center,
           ),
           if (_checkingActivation) const SizedBox(height: 8),
@@ -1047,8 +1076,13 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: _isDark
+                    ? Colors.red.withValues(alpha: 0.12)
+                    : Colors.red.shade50,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.red.withValues(alpha: _isDark ? 0.35 : 0.16),
+                ),
               ),
               child: Column(
                 children: [
@@ -1185,12 +1219,12 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
           children: [
             Icon(Icons.library_books, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'No Study Materials Available',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey,
+                color: _titleColor,
               ),
               textAlign: TextAlign.center,
             ),
@@ -1198,16 +1232,17 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: _secondarySurfaceColor,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _borderColor),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
+                  Text(
                     'Currently no study guides available for:',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                    style: TextStyle(fontSize: 14, color: _bodyColor),
                   ),
                   const SizedBox(height: 12),
                   _buildAcademicInfoCard(),
@@ -1217,7 +1252,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: _bodyColor,
                       height: 1.5,
                     ),
                   ),
@@ -1228,7 +1263,7 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade700,
+                      color: _titleColor,
                     ),
                   ),
                 ],
@@ -1333,9 +1368,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1350,9 +1385,10 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                   Expanded(
                     child: Text(
                       displayUniversity,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        color: _titleColor,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -1371,9 +1407,10 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                   Expanded(
                     child: Text(
                       displayDepartment,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        color: _titleColor,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -1389,9 +1426,10 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
               Expanded(
                 child: Text(
                   'Level ${actualLevel * 100} • Semester $actualSemester',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
+                    color: _titleColor,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1479,10 +1517,10 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
             children: [
               Text(
                 '${_studyDocs.length} Study Guide${_studyDocs.length == 1 ? '' : 's'}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey,
+                  color: _bodyColor,
                 ),
               ),
               const Spacer(),
@@ -1493,7 +1531,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     'View Only',
                     style: TextStyle(fontSize: 10),
                   ),
-                  backgroundColor: Colors.orange.shade100,
+                  backgroundColor: Colors.orange.withValues(
+                    alpha: _isDark ? 0.20 : 0.18,
+                  ),
                   visualDensity: VisualDensity.compact,
                 ),
               if (_isUserActivated)
@@ -1502,7 +1542,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                     'Full Access',
                     style: TextStyle(fontSize: 10),
                   ),
-                  backgroundColor: Colors.green.shade100,
+                  backgroundColor: Colors.green.withValues(
+                    alpha: _isDark ? 0.20 : 0.18,
+                  ),
                   visualDensity: VisualDensity.compact,
                 ),
               const SizedBox(width: 8),
@@ -1510,9 +1552,11 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
               Chip(
                 label: Text(
                   'Filtered for ${_userDepartment.isNotEmpty ? _userDepartment : widget.department}',
-                  style: const TextStyle(fontSize: 10),
+                  style: TextStyle(fontSize: 10, color: _titleColor),
                 ),
-                backgroundColor: Colors.blue.shade100,
+                backgroundColor: Colors.blue.withValues(
+                  alpha: _isDark ? 0.20 : 0.14,
+                ),
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -1551,6 +1595,8 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
               ? () => _showDownloadOptions(doc, isDownloaded)
               : () => _showActivationRequiredDialog(),
           child: Card(
+            color: _surfaceColor,
+            surfaceTintColor: Colors.transparent,
             margin: const EdgeInsets.only(bottom: 12),
             elevation: 2,
             shape: RoundedRectangleBorder(
@@ -1607,10 +1653,11 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                         // Title
                         Text(
                           doc.title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             height: 1.2,
+                            color: _titleColor,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -1631,7 +1678,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.shade100,
+                                  color: Colors.blue.withValues(
+                                    alpha: _isDark ? 0.20 : 0.14,
+                                  ),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -1639,7 +1688,9 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w500,
-                                    color: Colors.blue.shade800,
+                                    color: _isDark
+                                        ? const Color(0xFF93C5FD)
+                                        : Colors.blue.shade800,
                                   ),
                                 ),
                               ),
@@ -1651,15 +1702,18 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
+                                  color: _secondarySurfaceColor,
                                   borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: _borderColor),
                                 ),
                                 child: Text(
                                   doc.courseName,
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade700,
+                                    color: _isDark
+                                        ? const Color(0xFFCBD5E1)
+                                        : Colors.grey.shade700,
                                   ),
                                 ),
                               ),
@@ -1677,14 +1731,14 @@ class _StudyGuideScreenState extends State<StudyGuideScreen> {
                                 Icon(
                                   Icons.insert_drive_file,
                                   size: 12,
-                                  color: Colors.grey.shade600,
+                                  color: _bodyColor,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   doc.fileSize,
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Colors.grey.shade600,
+                                    color: _bodyColor,
                                   ),
                                 ),
                               ],

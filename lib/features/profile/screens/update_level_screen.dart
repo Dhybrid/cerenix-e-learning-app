@@ -649,7 +649,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
                 label,
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade600,
+                  color: _bodyColor,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                 ),
@@ -659,7 +659,7 @@ class _UpdateLevelScreenState extends State<UpdateLevelScreen>
                 value,
                 style: TextStyle(
                   fontSize: 16,
-                  color: Colors.black87,
+                  color: _titleColor,
                   fontWeight: FontWeight.w700,
                   height: 1.3,
                 ),

@@ -429,9 +429,9 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
             children: [
               const Icon(Icons.error_outline, size: 60, color: Colors.grey),
               const SizedBox(height: 20),
-              const Text(
+              Text(
                 'Please sign in to use CGPA Calculator',
-                style: TextStyle(fontSize: 16, color: Colors.black54),
+                style: TextStyle(fontSize: 16, color: _bodyColor),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
@@ -467,12 +467,12 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
             children: [
               const Icon(Icons.error_outline, size: 60, color: Colors.red),
               const SizedBox(height: 20),
-              const Text(
+              Text(
                 'Failed to load CGPA data',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: _titleColor,
                 ),
               ),
               const SizedBox(height: 10),
@@ -560,7 +560,9 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                         'Your CGPA',
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.blue.shade800,
+                          color: _isDark
+                              ? const Color(0xFF93C5FD)
+                              : Colors.blue.shade800,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -577,7 +579,9 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                       Text(
                         '/ 5.00',
                         style: TextStyle(
-                          color: Colors.blue.shade700,
+                          color: _isDark
+                              ? const Color(0xFFBFDBFE)
+                              : Colors.blue.shade700,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
@@ -650,21 +654,21 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
         children: [
           Icon(Icons.school_outlined, size: 70, color: Colors.grey.shade400),
           const SizedBox(height: 20),
-          const Text(
+          Text(
             'No CGPA Records Yet',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: Colors.black54,
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 8),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
               'Add your first level to start calculating your CGPA',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black45, fontSize: 14),
+              style: TextStyle(color: _bodyColor, fontSize: 14),
             ),
           ),
           const SizedBox(height: 30),
@@ -884,17 +888,19 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                   bottom: MediaQuery.of(context).viewInsets.bottom + 20,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: _surfaceColor,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _borderColor),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    Text(
                       'Add Academic Level',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
+                        color: _titleColor,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -906,7 +912,7 @@ class _CGPACalculatorScreenState extends State<CGPACalculatorScreen> {
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.school),
                       ),
-                      style: const TextStyle(fontSize: 16),
+                      style: TextStyle(fontSize: 16, color: _titleColor),
                       autofocus: true,
                     ),
                     const SizedBox(height: 24),
@@ -1395,18 +1401,22 @@ class _SemesterScreenState extends State<SemesterScreen> {
               if (currentCourses.isEmpty)
                 Container(
                   padding: const EdgeInsets.all(40),
-                  child: const Column(
+                  child: Column(
                     children: [
-                      Icon(Icons.class_outlined, size: 60, color: Colors.grey),
-                      SizedBox(height: 16),
+                      Icon(
+                        Icons.class_outlined,
+                        size: 60,
+                        color: _bodyColor.withValues(alpha: 0.65),
+                      ),
+                      const SizedBox(height: 16),
                       Text(
                         'No courses added',
-                        style: TextStyle(color: Colors.black54, fontSize: 16),
+                        style: TextStyle(color: _titleColor, fontSize: 16),
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text(
                         'Tap "Add New Course" to start',
-                        style: TextStyle(color: Colors.grey, fontSize: 14),
+                        style: TextStyle(color: _bodyColor, fontSize: 14),
                       ),
                     ],
                   ),
@@ -1621,12 +1631,12 @@ class _SemesterScreenState extends State<SemesterScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: _isDark ? 0.16 : 0.03),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1669,7 +1679,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
               ),
               prefixIcon: Icon(Icons.menu_book),
             ),
-            style: const TextStyle(fontSize: 16),
+            style: TextStyle(fontSize: 16, color: _titleColor),
             // Simple onChanged - normal typing behavior
             onChanged: (value) {
               final newCode = value.trim().toUpperCase();
@@ -1700,7 +1710,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
                     ),
                     prefixIcon: Icon(Icons.numbers),
                   ),
-                  style: const TextStyle(fontSize: 16),
+                  style: TextStyle(fontSize: 16, color: _titleColor),
                   keyboardType: TextInputType.number,
                   inputFormatters: [
                     FilteringTextInputFormatter
@@ -1723,6 +1733,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   value: selectedGrade,
+                  dropdownColor: _surfaceColor,
                   items: _grades
                       .map(
                         (grade) => DropdownMenuItem(
@@ -1785,7 +1796,7 @@ class _SemesterScreenState extends State<SemesterScreen> {
       case 'F':
         return Colors.red;
       default:
-        return Colors.black;
+        return _titleColor;
     }
   }
 }
